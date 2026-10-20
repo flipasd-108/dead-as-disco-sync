@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10,<3.13"
-# dependencies = ["beat-this", "soundfile", "yt-dlp[default,deno]", "imageio-ffmpeg"]
+# dependencies = ["beat-this", "soundfile", "yt-dlp[default,deno]", "imageio-ffmpeg", "pytsmod"]
 # ///
 """Dead as Disco sync: YouTube link or audio file -> WAV + BPM / Beat Offset / Start Time.
 
@@ -56,7 +56,7 @@ def fetch_wav(src: str, out_dir: Path) -> Path:
 
 
 def fit_grid(beats: np.ndarray):
-    """Least-squares constant grid through beat times. Returns period_s, t0_s, residuals_s."""
+    """Least-squares constant grid through beat times. Returns period_s, t0_s, beat indices on the grid."""
     # index each beat by local rounding, so a missed or extra beat doesn't shift the rest
     idx = np.concatenate([[0], np.cumsum(np.round(np.diff(beats) / np.median(np.diff(beats))))])
     keep = np.ones(len(beats), bool)
@@ -67,7 +67,24 @@ def fit_grid(beats: np.ndarray):
         if (np.abs(resid) < 0.05).sum() < 8:
             break
         keep = np.abs(resid) < 0.05
-    return period, t0, resid[keep]
+    return period, t0, idx
+
+
+def warp_to_grid(audio: np.ndarray, sr: int, beats: np.ndarray, idx: np.ndarray,
+                 period: float, t0: float, target: float) -> np.ndarray:
+    """Stretch the audio between beats so every beat lands on one constant grid of `target` seconds."""
+    import pytsmod
+    _, first = np.unique(idx, return_index=True)  # an extra beat shares its index: keep one
+    beats, idx = beats[first], idx[first]
+    # follow the drummer's tempo, not the tracker's per-beat noise: median over 9 beats
+    drift = np.median(np.lib.stride_tricks.sliding_window_view(np.pad(beats - (t0 + idx * period), 4, "edge"), 9), 1)
+    src, dst = t0 + idx * period + drift, t0 + idx * target
+    ok = (src > 0.05) & (dst > 0.05) & (src < len(audio) / sr - 0.05)
+    src, dst = src[ok], dst[ok]
+    end = len(audio) - 1
+    anchors = np.array([np.r_[0, src * sr, end], np.r_[0, dst * sr, dst[-1] * sr + end - src[-1] * sr]])
+    out = pytsmod.hptsm(audio.T, anchors).T  # harmonic/percussive split keeps drum attacks sharp
+    return out / max(1.0, np.abs(out).max())  # stretching can overshoot full scale: avoid clipping
 
 
 def rms_frames(mono: np.ndarray, hop: int) -> np.ndarray:
@@ -95,29 +112,34 @@ def refine_t0(mono: np.ndarray, sr: int, period: float, t0: float) -> float:
     return t0 + best / fps if abs(best) <= 12 else t0
 
 
-def analyze(wav: Path):
+def analyze(wav: Path, warp: bool = True, period: float | None = None):
+    """Beat grid of the file. With warp, an unsteady track is rewritten in place onto a constant tempo."""
     from beat_this.inference import Audio2Beats
     audio, sr = sf.read(wav, dtype="float64")
     mono = audio.mean(1) if audio.ndim == 2 else audio
     beats, _ = Audio2Beats(checkpoint_path="final0", device="cpu", dbn=False)(mono, sr)
     beats = np.asarray(beats)
-    period, t0, resid = fit_grid(beats)
+    if period is None:
+        period, t0, idx = fit_grid(beats)
+    else:  # second pass over a warped file: its tempo is known exactly
+        idx = np.round((beats - beats[0]) / period)
+        t0 = np.median(beats - idx * period)
+    resid = beats - (t0 + idx * period)
+    jitter_ms = float(np.sqrt(np.mean(resid ** 2)) * 1000)
     bpm = 60 / period
     snapped = abs(bpm - round(bpm)) < 0.03  # produced tracks are usually exactly integer BPM
+    if warp and jitter_ms > 15 and not snapped:
+        target = 60 / round(bpm, 2)  # the game takes BPM with 2 decimals: make the file match it exactly
+        print(f"Темп плавает (~{jitter_ms:.0f} мс), выравниваю трек на {ru(round(bpm, 2), 2)}...")
+        sf.write(wav, warp_to_grid(audio, sr, beats, idx, period, t0, target), sr, subtype="PCM_16")
+        return analyze(wav, warp=False, period=target) | {"warped_from_ms": jitter_ms}
     if snapped:
         idx = np.round((beats - t0) / (60 / round(bpm)))
         period = 60 / round(bpm)
         t0 = np.median(beats - idx * period)
     offset_ms = round((refine_t0(mono, sr, period, t0) % period) * 1000)
-    dur = len(mono) / sr
-    sections = []  # live recordings drift: local grid per 30 s for the editor's BPM sections
-    for s in range(0, int(dur), 30):
-        w = beats[(beats >= s) & (beats < s + 30)]
-        if len(w) >= 8:
-            p, t, _ = fit_grid(w)
-            sections.append((s, 60 / p, round((t % p) * 1000)))
-    return dict(bpm=60 / period, snapped=snapped, offset=offset_ms, start=start_time(mono, sr), dur=dur,
-                jitter_ms=float(np.sqrt(np.mean(resid ** 2)) * 1000), sections=sections)
+    return dict(bpm=60 / period, snapped=snapped, offset=offset_ms, start=start_time(mono, sr),
+                dur=len(mono) / sr, jitter_ms=jitter_ms)
 
 
 def ru(x: float, digits: int) -> str:
@@ -155,11 +177,11 @@ def main():
     print("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.")
     if sys.platform == "win32":
         subprocess.Popen(["explorer", "/select,", str(wav)])
+    if "warped_from_ms" in r:
+        print(f"\nТрек выровнен под один темп: удары гуляли на ~{r['warped_from_ms']:.0f} мс, "
+              f"теперь ~{r['jitter_ms']:.0f} мс. Звук чуть растянут/сжат местами, на слух не заметно.")
     if r["jitter_ms"] > 15:
-        print(f"\nВНИМАНИЕ: темп плавает (доли гуляют на ~{r['jitter_ms']:.0f} мс), живой барабанщик или смена темпа. "
-              "Один темп будет уезжать; по кускам для секций в расширенном редакторе:")
-        for s, b, o in r["sections"]:
-            print(f"  с {s // 60}:{s % 60:02d}   Темп {ru(b, 2)}   Смещение {o}")
+        print(f"\nВНИМАНИЕ: удары всё ещё гуляют на ~{r['jitter_ms']:.0f} мс, проверь трек в игре.")
 
 
 if __name__ == "__main__":
