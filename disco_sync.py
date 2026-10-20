@@ -98,9 +98,8 @@ def start_time(mono: np.ndarray, sr: int) -> float:
     return round(int(np.argmax(env > env.max() * 0.01)) * hop / sr, 2)
 
 
-def refine_t0(mono: np.ndarray, sr: int, period: float, t0: float) -> float:
-    # the beat tracker works in 20 ms frames: snap the grid onto the attacks (1 ms envelope),
-    # but only when the best fit lies within one tracker frame; a far peak on a dense mix is another instrument
+def attack_t0(mono: np.ndarray, sr: int, period: float, t0: float) -> float:
+    # signal-based vote: slide the grid +-40 ms onto the sharpest energy rises (1 ms envelope)
     hop = sr // 1000
     fps = sr / hop
     env = rms_frames(mono, hop)
@@ -108,8 +107,15 @@ def refine_t0(mono: np.ndarray, sr: int, period: float, t0: float) -> float:
     grid = np.round((t0 % period + np.arange(int(len(env) / fps / period)) * period) * fps).astype(int)
     grid = grid[(grid >= 40) & (grid < len(flux) - 40)]
     shifts = np.arange(-40, 41)
-    best = shifts[np.argmax([flux[grid + s].sum() for s in shifts])]
-    return t0 + best / fps if abs(best) <= 12 else t0
+    return t0 + shifts[np.argmax([flux[grid + s].sum() for s in shifts])] / fps
+
+
+def grid_t0(beats: np.ndarray, period: float) -> float:
+    idx = np.round((beats - beats[0]) / period)
+    return float(np.median(beats - idx * period))
+
+
+CHECKPOINTS = ("final0", "final1", "final2")  # three independently trained Beat This! models vote
 
 
 def analyze(wav: Path, warp: bool = True, period: float | None = None):
@@ -117,29 +123,38 @@ def analyze(wav: Path, warp: bool = True, period: float | None = None):
     from beat_this.inference import Audio2Beats
     audio, sr = sf.read(wav, dtype="float64")
     mono = audio.mean(1) if audio.ndim == 2 else audio
-    beats, _ = Audio2Beats(checkpoint_path="final0", device="cpu", dbn=False)(mono, sr)
-    beats = np.asarray(beats)
+    tracks = [np.asarray(Audio2Beats(checkpoint_path=c, device="cpu", dbn=False)(mono, sr)[0]) for c in CHECKPOINTS]
+    beats = tracks[0]
     if period is None:
         period, t0, idx = fit_grid(beats)
+        bpm_votes = [60 / fit_grid(b)[0] for b in tracks]
+        period = 60 / float(np.median(bpm_votes))
     else:  # second pass over a warped file: its tempo is known exactly
         idx = np.round((beats - beats[0]) / period)
         t0 = np.median(beats - idx * period)
-    resid = beats - (t0 + idx * period)
-    jitter_ms = float(np.sqrt(np.mean(resid ** 2)) * 1000)
+        bpm_votes = [60 / period]
+    jitter_ms = float(np.sqrt(np.mean((beats - (t0 + idx * period)) ** 2)) * 1000)
     bpm = 60 / period
     snapped = abs(bpm - round(bpm)) < 0.03  # produced tracks are usually exactly integer BPM
     if warp and jitter_ms > 15 and not snapped:
         target = 60 / round(bpm, 2)  # the game takes BPM with 2 decimals: make the file match it exactly
         print(f"Темп плавает (~{jitter_ms:.0f} мс), выравниваю трек на {ru(round(bpm, 2), 2)}...")
         sf.write(wav, warp_to_grid(audio, sr, beats, idx, period, t0, target), sr, subtype="PCM_16")
-        return analyze(wav, warp=False, period=target) | {"warped_from_ms": jitter_ms}
+        return analyze(wav, warp=False, period=target) | {"warped_from_ms": jitter_ms, "bpm_votes": bpm_votes}
     if snapped:
-        idx = np.round((beats - t0) / (60 / round(bpm)))
         period = 60 / round(bpm)
-        t0 = np.median(beats - idx * period)
-    offset_ms = round((refine_t0(mono, sr, period, t0) % period) * 1000)
-    return dict(bpm=60 / period, snapped=snapped, offset=offset_ms, start=start_time(mono, sr),
-                dur=len(mono) / sr, jitter_ms=jitter_ms)
+    # offset: each model's grid, aligned around model 1 (wrap at period), plus the attacks vote. Models sit
+    # ~5 ms late on clean clicks (20 ms frames), so the attacks win when they agree within 12 ms;
+    # a far attack peak on a dense mix is another instrument, then the models' median wins
+    votes = {f"модель {i + 1}": grid_t0(b, period) for i, b in enumerate(tracks)}
+    ref = votes["модель 1"]
+    votes = {k: ref + (v - ref + period / 2) % period - period / 2 for k, v in votes.items()}
+    models = float(np.median(list(votes.values())))
+    votes["атаки"] = attack_t0(mono, sr, period, models)
+    t0 = votes["атаки"] if abs(votes["атаки"] - models) <= 0.012 else models
+    return dict(bpm=60 / period, snapped=snapped, offset=round((t0 % period) * 1000), start=start_time(mono, sr),
+                dur=len(mono) / sr, jitter_ms=jitter_ms, bpm_votes=bpm_votes,
+                votes={k: round((v - t0) * 1000) for k, v in votes.items()})
 
 
 def ru(x: float, digits: int) -> str:
@@ -177,6 +192,11 @@ def main():
     print("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.")
     if sys.platform == "win32":
         subprocess.Popen(["explorer", "/select,", str(wav)])
+    spread = max(r["votes"].values()) - min(r["votes"].values())
+    print(f"\nСверка: темп по моделям {' / '.join(ru(b, 2) for b in r['bpm_votes'])}; смещение относительно итога: "
+          + ", ".join(f"{k} {v:+d}" for k, v in r["votes"].items()) + f" мс (разброс {spread} мс)")
+    if spread > 15:
+        print("  Голоса заметно расходятся: если в игре удары мимо, попробуй смещение ± эти мс.")
     if "warped_from_ms" in r:
         print(f"\nТрек выровнен под один темп: удары гуляли на ~{r['warped_from_ms']:.0f} мс, "
               f"теперь ~{r['jitter_ms']:.0f} мс. Звук чуть растянут/сжат местами, на слух не заметно.")
