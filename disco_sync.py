@@ -7,7 +7,7 @@
 Run:  uv run disco_sync.py "https://youtu.be/..."   (or a local file path)
 Import the WAV it writes into the game: the offset is measured on exactly that file.
 """
-import os, subprocess, sys, time
+import subprocess, sys, time
 from pathlib import Path
 
 import numpy as np
@@ -28,19 +28,26 @@ def fetch_wav(src: str, out_dir: Path) -> Path:
             "noplaylist": True,
             "quiet": True,
         }
-        if os.environ.get("COOKIES_BROWSER"):  # e.g. chrome / firefox / edge, when YouTube asks to sign in
-            opts["cookiesfrombrowser"] = (os.environ["COOKIES_BROWSER"],)
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            for attempt in range(4):  # YouTube's bot check is intermittent, a retry usually passes
-                try:
+        # YouTube's bot check is per IP: retry, then a signed-in session. Chrome/Edge cookies can't be
+        # decrypted on Windows (app-bound encryption), so Firefox or an exported cookies.txt
+        cookies_txt = out_dir.parent / "cookies.txt"
+        tries = [{"cookiefile": str(cookies_txt)}] if cookies_txt.exists() else []
+        tries += [{}, {}, {"cookiesfrombrowser": ("firefox",)}]
+        for extra in tries:
+            try:
+                with yt_dlp.YoutubeDL(opts | extra) as ydl:
                     info = ydl.extract_info(src)
                     return Path(ydl.prepare_filename(info)).with_suffix(".wav")
-                except yt_dlp.utils.DownloadError as e:
-                    if "not a bot" not in str(e):
-                        raise
-                    print(f"YouTube bot check, retrying ({attempt + 1}/3)...")
-                    time.sleep(5)
-            sys.exit("YouTube wants a sign-in: try later, or set COOKIES_BROWSER=firefox (a browser logged in to YouTube).")
+            except Exception as e:  # bot check, or no Firefox profile for the cookie attempt
+                if "not a bot" not in str(e) and "cookiesfrombrowser" not in extra:
+                    raise
+                print("YouTube: проверка на бота, пробую по-другому...")
+                time.sleep(3)
+        sys.exit("\nYouTube не пускает (проверка на бота). Варианты:\n"
+                 "  1) войти в YouTube в Firefox и запустить снова: программа возьмёт вход оттуда;\n"
+                 "  2) в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export\n"
+                 f"     и положить файл cookies.txt сюда: {cookies_txt.parent}\n"
+                 "  3) скачать песню любым способом и перетащить файл на DeadAsDiscoSync.bat.")
     src_path = Path(src)
     wav = out_dir / (src_path.stem + ".wav")
     if src_path.resolve() != wav.resolve():

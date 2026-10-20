@@ -21,6 +21,6 @@
 
 Без батника: `uv run disco_sync.py "<ссылка или файл>" [папка]`.
 
-Если YouTube просит подтвердить, что вы не бот, скрипт повторяет попытку сам; не помогло — `set COOKIES_BROWSER=firefox` (браузер, где вы вошли в YouTube) и запустить снова.
+Если YouTube просит подтвердить, что вы не бот, программа повторяет попытку и пробует вход из Firefox. Не помогло: войти в YouTube в Firefox, или в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export и положить `cookies.txt` рядом с батником, или просто скачать песню и перетащить файл.
 
 Идея и формат полей: [Aoshi2020/DeadAsDisco-SyncTool](https://github.com/Aoshi2020/DeadAsDisco-SyncTool).
