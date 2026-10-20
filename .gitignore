@@ -1,0 +1,4 @@
+songs/
+_test/
+__pycache__/
+*.wav
