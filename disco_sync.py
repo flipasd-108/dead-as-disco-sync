@@ -27,6 +27,7 @@ def fetch_wav(src: str, out_dir: Path) -> Path:
             "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
             "noplaylist": True,
             "quiet": True,
+            "noprogress": True,
         }
         # YouTube's bot check is per IP: retry, then a signed-in session. Chrome/Edge cookies can't be
         # decrypted on Windows (app-bound encryption), so Firefox or an exported cookies.txt
