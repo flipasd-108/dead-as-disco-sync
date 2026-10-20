@@ -139,6 +139,9 @@ def main():
     print(f"BPM:         {bpm_txt}")
     print(f"Beat Offset: {r['offset']}")
     print(f"Start Time:  {r['start']:.2f}")
+    print("\nThe WAV is selected in Explorer: add it to the game from there and keep it in place.")
+    if sys.platform == "win32":
+        subprocess.Popen(["explorer", "/select,", str(wav)])
     if r["jitter_ms"] > 15:
         print(f"\nWARNING: tempo is not steady (beats off grid by ~{r['jitter_ms']:.0f} ms), live drummer or tempo "
               "change. One BPM will drift; for BPM sections in the Advanced Editor:")
