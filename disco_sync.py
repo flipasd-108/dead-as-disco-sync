@@ -109,8 +109,12 @@ def analyze(wav: Path):
         if len(w) >= 8:
             p, t, _ = fit_grid(w)
             sections.append((s, 60 / p, round((t % p) * 1000)))
-    return dict(bpm=60 / period, snapped=snapped, offset=offset_ms, start=start_time(mono, sr),
+    return dict(bpm=60 / period, snapped=snapped, offset=offset_ms, start=start_time(mono, sr), dur=dur,
                 jitter_ms=float(np.sqrt(np.mean(resid ** 2)) * 1000), sections=sections)
+
+
+def ru(x: float, digits: int) -> str:
+    return f"{x:.{digits}f}".replace(".", ",")  # the game's Russian UI uses a decimal comma
 
 
 def _selftest():
@@ -132,21 +136,23 @@ def main():
     out_dir = Path(sys.argv[2] if len(sys.argv) > 2 else ".").resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     wav = fetch_wav(sys.argv[1], out_dir)
-    print(f"Analyzing {wav.name} ...")
+    print(f"Анализ: {wav.name} ...")
     r = analyze(wav)
-    bpm_txt = f"{round(r['bpm'])}" if r["snapped"] else f"{r['bpm']:.2f}"
-    print(f"\nFile:        {wav}")
-    print(f"BPM:         {bpm_txt}")
-    print(f"Beat Offset: {r['offset']}")
-    print(f"Start Time:  {r['start']:.2f}")
-    print("\nThe WAV is selected in Explorer: add it to the game from there and keep it in place.")
+    bpm_txt = str(round(r["bpm"])) if r["snapped"] else ru(r["bpm"], 2)
+    print(f"\nФайл: {wav}")
+    print("\n  Моя музыка -> вбить в игру:")
+    print(f"  Темп:                  {bpm_txt}")
+    print(f"  Смещение ритма (мс):   {r['offset']}")
+    print(f"  Время начала (с):      {ru(r['start'], 2)}")
+    print(f"  Время окончания (с):   {ru(r['dur'], 3)}")
+    print("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.")
     if sys.platform == "win32":
         subprocess.Popen(["explorer", "/select,", str(wav)])
     if r["jitter_ms"] > 15:
-        print(f"\nWARNING: tempo is not steady (beats off grid by ~{r['jitter_ms']:.0f} ms), live drummer or tempo "
-              "change. One BPM will drift; for BPM sections in the Advanced Editor:")
+        print(f"\nВНИМАНИЕ: темп плавает (доли гуляют на ~{r['jitter_ms']:.0f} мс), живой барабанщик или смена темпа. "
+              "Один темп будет уезжать; по кускам для секций в расширенном редакторе:")
         for s, b, o in r["sections"]:
-            print(f"  from {s // 60}:{s % 60:02d}   BPM {b:.2f}   Offset {o}")
+            print(f"  с {s // 60}:{s % 60:02d}   Темп {ru(b, 2)}   Смещение {o}")
 
 
 if __name__ == "__main__":
