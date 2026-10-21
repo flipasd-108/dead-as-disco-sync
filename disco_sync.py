@@ -72,12 +72,10 @@ def add_to_game(r: dict) -> Path | None:
         shutil.copyfile(r["wav"], audio)
     else:  # the game keeps another format: convert, the WAV already starts on a beat
         subprocess.run([FFMPEG, "-y", "-v", "error", "-i", str(r["wav"]), str(audio)], check=True)
-    # the game's Auto-detect is Beat This model 1 (its log loads a BeatThis plugin; on a real song it wrote 497 ms
-    # where model 1 sits 11 ms before our beat: 507.5 - 11). Writing model 1's grid makes Auto-detect unnecessary
-    beat_offset = round(next(iter(r["votes"].values())) % (60000 / r["bpm"]))
+    beat_offset = r.get("game_offset", r["offset"])  # what the game's own Auto-detect would set: no need to press it
     meta = {
         "version": 1, "uniqueId": random.getrandbits(32), "songName": folder.name, "performedBy": [], "writtenBy": [],
-        "seed": random.getrandbits(31), "tempo": round(r["bpm"], 2), "customTempoSections": [],
+        "seed": random.getrandbits(31), "tempo": r["bpm"], "customTempoSections": [],
         "beatOffset": beat_offset, "startSongOffset": r["start"], "endSongOffset": 0, "uEAssetName": folder.name,
         "originalAudioFileHash": hashlib.md5(r["wav"].read_bytes()).hexdigest(),
         "originalAudioFilePath": r["wav"].as_posix(),
@@ -307,7 +305,11 @@ def analyze(wav: Path, warp: bool = True, period: float | None = None):
         res["sync"] = analyze(sync, warp=False, period=target)
     aligned, trim = align_to_beat(audio, sr, t0 % period, period, res["start"])
     sf.write(wav, aligned, sr, subtype="PCM_16")
-    res |= dict(offset=0, start=0.0, dur=len(aligned) / sr, trim=trim)
+    # the game's Auto-detect is Beat This model 1 with a grid fit (checked on two real songs: 497 vs 496.5 ms,
+    # 2 vs 1.9 ms). Run it on the finished file, as the game would, and hand the game that offset
+    game = np.asarray(beat_model(CHECKPOINTS[0])(aligned.mean(1) if aligned.ndim == 2 else aligned, sr)[0])
+    game_offset = round(grid_t0(game, period) % period * 1000) if len(game) >= 8 else 0
+    res |= dict(offset=0, start=0.0, dur=len(aligned) / sr, trim=trim, game_offset=game_offset)
     return res
 
 
