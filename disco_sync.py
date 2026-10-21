@@ -516,13 +516,13 @@ def gui(out_dir: Path, src: str = ""):
     def gpu_note():
         want = gpu_var.get()
         if want != gpu_now:
-            note = tr("Включится после перезапуска программы" + (", докачается около 2,5 ГБ" if want else ""),
+            note = tr("Включится после перезапуска программы" + (", один раз скачается ещё около 2,5 ГБ" if want else ""),
                       "Takes effect after a restart" + (", downloads about 2.5 GB" if want else ""))
         elif want:
             note = tr("Считает видеокарта: 3-минутная песня ~5 с вместо ~12 с на процессоре",
                       "The GPU runs it: a 3-minute song takes ~5 s instead of ~12 s on the CPU")
         else:
-            note = tr("Считает процессор. На видеокарте 3-минутная песня ~5 с вместо ~12 с, один раз докачается 2,5 ГБ",
+            note = tr("Считает процессор. На видеокарте 3-минутная песня ~5 с вместо ~12 с, после разовой загрузки 2,5 ГБ",
                       "The CPU runs it. On the GPU a 3-minute song takes ~5 s instead of ~12 s, after a 2.5 GB download")
         cv.itemconfigure(t_gpu, text=note)
 
@@ -642,7 +642,8 @@ def gui(out_dir: Path, src: str = ""):
         names = "\n".join(f"  {tree.set(i, 'name')}" for i in tree.selection() if rows[i][0] is not current.get("h"))
         if not messagebox.askyesno(tr("Удалить", "Delete"), tr(
                 f"Удалить?\n{names}\n\nПесни пропадут из списка, из «Моей музыки» игры и с диска.",
-                f"Delete?\n{names}\n\nThe songs leave this list, the game's My Music and the disk."), icon="warning"):
+                f"Delete?\n{names}\n\nThe songs leave this list, the game's My Music and the disk."), icon="warning",
+                default="no"):
             return
         failed, touched = [], []
         for h, v in items:
@@ -812,7 +813,7 @@ def gui(out_dir: Path, src: str = ""):
             "• песня с плавающим темпом (живые барабаны): ~30 с вместо ~37 с, выравнивание темпа всё равно "
             "идёт на процессоре.\n\n"
             "Цена:\n"
-            "• один раз докачается около 2,5 ГБ, на диске займёт ещё около 4 ГБ;\n"
+            "• один раз скачается ещё около 2,5 ГБ, на диске займёт ещё около 4 ГБ;\n"
             "• нужен свежий драйвер NVIDIA; со старым программа сама посчитает на процессоре;\n"
             "• видеокарты AMD и Intel не поддерживаются.\n\n"
             "Включится со следующего запуска. Передумать можно переключателем под списком песен.",
@@ -829,7 +830,7 @@ def gui(out_dir: Path, src: str = ""):
         set_gpu(on)
         if on:
             messagebox.showinfo(tr("Ускорение на видеокарте", "GPU acceleration"), tr(
-                "Закрой программу и запусти снова: докачается версия для видеокарты.",
+                "Закрой программу и запусти снова: скачается версия для видеокарты.",
                 "Close the tool and start it again: the GPU version will download."))
 
     sync_actions()

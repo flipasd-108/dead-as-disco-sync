@@ -2,57 +2,80 @@
 
 [English below](#english)
 
-Ссылка на YouTube или аудиофайл → WAV и настройки для «Моя музыка» в Dead as Disco: **Темп**, **Смещение ритма (мс)**, **Время начала (с)**, **Время окончания (с)**. Проверено в игре.
+Программа для «Моей музыки» в Dead as Disco. Берёт песню с YouTube или из файла, находит доли, подрезает трек так, чтобы он начинался ровно на доле, и сама добавляет его в игру. В игре остаётся нажать «Автоматическое определение». Проверено в игре на стриме.
 
 ## Запуск (Windows)
 
-1. Скачать один файл: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** и положить в отдельную папку.
-2. Запустить его: откроется окно. Вставить ссылку или выбрать файл (аудио или видео) и нажать «Старт». Готовые песни копятся в списке, двойной щелчок по песне открывает её папку. Можно и просто перетащить файл на батник. Windows может спросить «Запустить?», ответить «да».
-3. Песня **сама добавляется в «Мою музыку»**, если в игре уже есть хоть одна песня. Папку с песнями в сохранениях игры (`%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`) программа находит сама, её можно указать и вручную. Потом перезапустить игру: Reload Directory новые песни не видит. Если песня не появилась, добавить WAV из папки `songs\`.
-4. В игре открыть песню и нажать **«Автоматическое определение»**. Трек уже начинается на доле, и игра сама ставит темп и смещение. Числа из программы нужны, только если автоопределение промахнулось.
+1. Скачать **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** и положить в отдельную папку: рядом появится папка `songs` с готовыми песнями.
+2. Запустить его. Если Windows предупредит о скачанном файле, разрешить запуск. Первый запуск ставит [uv](https://github.com/astral-sh/uv), Python, библиотеки и модели: около 1 ГБ, несколько минут. Чёрное окно консоли в это время не закрывать.
+3. В окне программы проверить шаг 1, папку «Моей музыки» в сохранениях игры (`%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`). Обычно она находится сама, иначе указать её кнопкой «Указать». Программа добавляет песни, только если в игре уже есть хотя бы одна песня, добавленная через саму игру.
+4. Вставить ссылку или выбрать файл и нажать «Старт». Следующие ссылки можно добавлять, пока идёт анализ: они встанут в очередь. Файл можно и перетащить на DeadAsDiscoSync.bat.
+5. Перезапустить игру (Reload Directory новые песни не видит), открыть песню в «Моей музыке» и нажать **«Автоматическое определение»**. Трек уже начинается на доле, и игра сама ставит темп и смещение. Если она промахнулась, темп есть в списке песен программы.
 
-Первый запуск сам ставит [uv](https://github.com/astral-sh/uv), Python, библиотеки и модели (~1 ГБ, несколько минут). Дальше на 3-минутную песню около 12 с, с плавающим темпом около 40 с.
+Готовые песни собираются в списке. Кнопки над ним открывают папку песни, показывают WAV в Проводнике и удаляют песню: из списка, из игры и с диска, после подтверждения.
 
-Если есть видеокарта NVIDIA, окно при первом запуске предложит считать на ней: обычная песня ~5 с вместо ~12 с, но один раз докачается около 2,5 ГБ (на диске ещё ~4 ГБ). Потом это меняется переключателем под списком песен, выбор хранится в `songs\gpu.txt`. Видеокарты AMD и Intel не поддерживаются.
+Если песня не появилась в игре, добавить в неё вручную WAV из папки `songs`: он подрезан по доле, а исходный MP3 нет. Потом этот WAV не перемещать.
 
-Фон окна — обои из игры, они скачиваются при первом запуске в `songs\background.png`. Свою картинку можно положить туда же под именем `background.png` или `background.jpg`.
+Подходят файлы WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC (их принимает и сама игра), а ещё OPUS и видео MP4, MKV, WEBM, MOV. Ссылки подходят со всех сайтов, которые знает [yt-dlp]: YouTube, SoundCloud, Bandcamp, VK и другие. Spotify и Яндекс Музыка не подходят.
 
-**Грузить в игру именно этот WAV и не перемещать его**: смещение измерено на нём, MP3 того же трека может быть сдвинут на десятки мс.
+3-минутная песня обрабатывается около 12 с, с плавающим темпом около 40 с, плюс скачивание с YouTube.
 
-## Как считает
+### Видеокарта
 
-- доли находят три независимо обученные модели [Beat This!](https://github.com/CPJKU/beat_this) (CPJKU, 2024), темп — медиана их голосов;
-- через все доли методом наименьших квадратов проводится ровная сетка: темп до сотых (почти целый ставится целым);
-- смещение: голоса трёх моделей плюс голос по атакам ударов (точность 1 мс); если атаки согласны с моделями в пределах 12 мс, берутся атаки, иначе медиана моделей; в конце печатается сверка;
-- если темп плавает больше чем на 20 мс (живой барабанщик), выдаются два варианта: оригинал без изменений и выровненная копия `(sync)`, где звук между ударами чуть растянут/сжат (±1–2%) и все удары ложатся на ровную сетку; хватает обычного режима без расширенного редактора;
-- за образец для выравнивания берётся модель с самой чистой сеткой: если одна модель в каком-то куске перешла на удвоенный счёт, она не портит результат.
-- WAV подрезается так, чтобы начинаться ровно на доле (разработчики: игре нужен «BPM и трек, обрезанный так, что начинается на доле»): тишина до первой доли отрезается, а если там затакт — добавляется тишина до доли перед ним. Поэтому **смещение всегда 0, начало 0**, вбивать по сути нужно только темп;
-- для треков медленнее 120 подсказывается удвоенный темп (игра советует 120–200).
+Если есть видеокарта NVIDIA, при первом запуске программа предложит считать на ней. Обычная песня тогда обрабатывается около 5 с вместо 12, но один раз скачается ещё около 2,5 ГБ, а на диске займёт ещё около 4 ГБ. Включить или выключить можно переключателем под списком песен, это сработает после перезапуска программы. Видеокарты AMD и Intel не поддерживаются.
 
-Если YouTube просит подтвердить, что вы не бот, программа повторяет попытку и пробует вход из Firefox. Не помогло: войти в YouTube в Firefox, или в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export и положить `cookies.txt` рядом с батником, или скачать песню и перетащить файл.
+### Если YouTube не пускает
 
-Подходят и ссылки с других сайтов, которые знает [yt-dlp](https://github.com/yt-dlp/yt-dlp) (SoundCloud, Bandcamp, VK...). Spotify и Яндекс Музыка — нет.
+Если YouTube просит подтвердить, что вы не бот, программа повторяет попытку и пробует взять вход в YouTube из Firefox. Если не помогло:
+
+- войти в YouTube в Firefox и запустить снова;
+- или поставить в Chrome расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export и положить `cookies.txt` рядом с DeadAsDiscoSync.bat;
+- или скачать песню самому и выбрать файл.
+
+### Фон окна
+
+Обои из игры скачиваются при первом запуске в `songs\background.png`. Свою картинку можно положить туда же под именем `background.png` или `background.jpg`.
+
+## Как это работает
+
+Разработчики игры рассказали в [интервью 80.lv](https://80.lv/articles/interview-how-dead-as-disco-synchronizes-combat-to-player-uploaded-music), что игре нужен темп и трек, обрезанный так, чтобы он начинался на доле. Программа готовит именно такой трек.
+
+- Доли ищут три независимо обученные модели [Beat This!](https://github.com/CPJKU/beat_this) (CPJKU, 2024). Через доли проводится ровная сетка методом наименьших квадратов, темп получается с точностью до сотых.
+- Где стоит первая доля, решают голоса трёх моделей и голос по атакам ударов. Если атаки согласны с моделями в пределах 12 мс, берутся атаки, иначе медиана моделей.
+- WAV подрезается до первой доли. Если перед ней затакт, в начало добавляется тишина до предыдущей доли. Поэтому смещение и время начала всегда 0.
+- Если темп плавает больше чем на 20 мс (живой барабанщик), получается два варианта: оригинал и копия `(sync)`, где звук между ударами растянут или сжат на 1–2%, чтобы вся песня шла в одном темпе. В игру добавляются оба, лучше играть `(sync)`.
 
 ## English
 
-YouTube link or audio file → WAV plus the **My Music** settings for Dead as Disco: **BPM**, **Beat Offset (ms)**, **Start Time (s)**, **End Time (s)**. Tested in game.
+A tool for Dead as Disco's **My Music**. It takes a song from YouTube or a file, finds the beats, trims the track to start exactly on a beat and adds it to the game. In the game you only press **Auto-detect**. Tested in game on stream.
 
-1. Download one file: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** into its own folder.
-2. Run it: a window opens. Paste a link or pick a file (audio or video) and press Start. Finished songs pile up in a list; double-click one to open its folder. Dropping a file onto the .bat works too.
-3. The song is **added to My Music automatically** if the game already has at least one song. The songs folder in the game's saves (`%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`) is found automatically, or you can pick it. Restart the game: Reload Directory doesn't pick up new songs. If the song isn't there, add the WAV from `songs\`.
-4. In the game open the song and press **Auto-detect**. The track already starts on a beat, so the game sets tempo and offset itself. The numbers the tool prints are only for when auto-detect misses.
+1. Download **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** into its own folder: a `songs` folder with the finished songs appears next to it.
+2. Run it. If Windows warns about a downloaded file, allow it. The first run installs uv, Python, libraries and models: about 1 GB, a few minutes. Keep the black console window open meanwhile.
+3. In the window check step 1, the My Music folder in the game's saves (`%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`). It's usually found automatically; otherwise press Pick. The tool adds songs only if the game already has at least one song imported through the game itself.
+4. Paste a link or pick a file and press Start. You can add more links while one is analysed: they wait in a queue. Dropping a file onto DeadAsDiscoSync.bat works too.
+5. Restart the game (Reload Directory doesn't pick up new songs), open the song in My Music and press **Auto-detect**. The track already starts on a beat, so the game sets tempo and offset itself. If it misses, the tempo is in the tool's song list.
 
-The first run installs uv, Python, libraries and models (~1 GB). Output is in English unless Windows is set to Russian.
+Finished songs collect in a list. The buttons above it open the song's folder, show its WAV in Explorer and delete the song from the list, the game and the disk after a confirmation.
 
-With an NVIDIA card the window offers to use it on the first start: a regular song takes ~5 s instead of ~12 s, after a one-time 2.5 GB download (~4 GB on disk). The switch under the song list changes it later; the choice is kept in `songs\gpu.txt`. AMD and Intel cards aren't supported.
+If a song doesn't show up in the game, add the WAV from the `songs` folder by hand: it's trimmed to the beat, the source MP3 isn't. Don't move that WAV afterwards.
 
-The window's background is game art, fetched on the first start into `songs\background.png`; put your own `background.png` or `background.jpg` there to replace it.
+Files: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC (the game takes these too), plus OPUS and MP4, MKV, WEBM, MOV video. Links work from any site [yt-dlp] knows: YouTube, SoundCloud, Bandcamp, VK and more. Spotify and Yandex Music don't.
 
-How it works: the WAV is trimmed (or padded) to start exactly on a beat, so Beat Offset is always 0 and Start Time 0, as the developers ask; three independently trained Beat This! models vote on beats and BPM; a least-squares constant grid gives BPM to 0.01; the offset is the attacks vote (1 ms resolution) when it agrees with the models within 12 ms, otherwise the models' median. If the tempo drifts more than 20 ms (live drummer), you get two options: the untouched original and a `(sync)` copy time-warped by 1–2% between beats onto one constant tempo, so a single BPM fits the whole song.
+A 3-minute song takes about 12 s, about 40 s with a drifting tempo, plus the YouTube download. The window is in English unless Windows is set to Russian.
 
-If YouTube asks to confirm you're not a bot: sign in to YouTube in Firefox, or export `cookies.txt` with the "Get cookies.txt LOCALLY" extension and put it next to the .bat, or download the song yourself and drop the file.
+With an NVIDIA card the tool offers to use it on the first start: a regular song then takes about 5 s instead of 12, after a one-time download of about 2.5 GB and about 4 GB more on disk. The switch under the song list turns it on or off after a restart of the tool. AMD and Intel cards aren't supported.
+
+If YouTube asks to confirm you're not a bot, the tool retries and tries your Firefox YouTube sign-in. If that fails, sign in to YouTube in Firefox and run again, or export `cookies.txt` with the "Get cookies.txt LOCALLY" Chrome extension and put it next to DeadAsDiscoSync.bat, or download the song yourself and pick the file.
+
+The window's background is game art, fetched on the first start into `songs\background.png`. Put your own `background.png` or `background.jpg` there to replace it.
+
+How it works. The developers said in an [80.lv interview](https://80.lv/articles/interview-how-dead-as-disco-synchronizes-combat-to-player-uploaded-music) that the game needs the tempo and a track cut to start on a beat, and that's what the tool prepares. Three independently trained [Beat This!](https://github.com/CPJKU/beat_this) models find the beats, and a least-squares grid through them gives the tempo to 0.01 BPM. The first beat is placed by the models' votes plus a vote from drum attacks: the attacks win when they agree with the models within 12 ms, otherwise the models' median does. The WAV is cut to that beat, or padded with silence back to the previous beat when there are pickup notes, so Beat Offset and Start Time are always 0.
+
+If the tempo drifts more than 20 ms (a live drummer), you get two versions: the original and a `(sync)` copy stretched or squeezed by 1–2% between beats so the whole song runs at one tempo. Both go into the game; play the `(sync)` one.
 
 ---
 
-Без батника / without the .bat: `uv run disco_sync.py "<url or file>" [out_dir]`. Licence: MIT.
+Без окна / without the window: `uv run disco_sync.py "<url or file>" [out_dir]`. Licence: MIT.
 Идея и формат полей / idea and field format: [Aoshi2020/DeadAsDisco-SyncTool](https://github.com/Aoshi2020/DeadAsDisco-SyncTool).
+
+[yt-dlp]: https://github.com/yt-dlp/yt-dlp
