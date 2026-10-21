@@ -279,6 +279,12 @@ def main():
                  "\nAlready in the game, nothing to type: My Music -> Reload Directory (or restart the game)."))
         for f in added:
             print(f"  + {f.name}")
+        print(tr("Если в игре не появилось, добавь вручную WAV отсюда и вбей числа выше:",
+                 "If it doesn't show up, add the WAV from here by hand and enter the numbers above:"))
+        for v in (r, r.get("sync")):
+            if v:
+                print(f"  {v['wav']}")
+        print(tr(f"Папка песен игры: {GAME_SONGS}", f"Game songs folder: {GAME_SONGS}"))
     else:
         shown = r.get("sync", r)["wav"]
         print(tr("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.",
