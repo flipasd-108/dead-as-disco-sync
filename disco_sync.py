@@ -21,6 +21,10 @@ import imageio_ffmpeg
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 RU = (locale.getlocale()[0] or "").lower().startswith("ru")  # the game's language follows the system's
+AUTO_HINT_RU = ("Дальше в игре открой песню и нажми «Автоматическое определение»: трек уже начинается на доле, и на нём "
+                "игра сама точно ставит темп и смещение. Числа выше нужны, только если она промахнулась.")
+AUTO_HINT_EN = ("Then open the song in the game and press Auto-detect: the track already starts on a beat, so the game's "
+                "own detection sets the tempo and offset right. The numbers above are only for when it misses.")
 GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
 
 
@@ -277,6 +281,7 @@ def main():
     if added:
         print(tr("\nДобавлено в игру, вбивать ничего не нужно: перезапусти игру, и песня будет в «Моей музыке».",
                  "\nAdded to the game, nothing to type: restart the game and the song is in My Music."))
+        print(tr(AUTO_HINT_RU, AUTO_HINT_EN))
         for f in added:
             print(f"  + {f.name}")
         print(tr("Если в игре не появилось, добавь вручную WAV отсюда и вбей числа выше:",
@@ -289,6 +294,7 @@ def main():
         shown = r.get("sync", r)["wav"]
         print(tr("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.",
                  "\nThe WAV is selected in Explorer: add it to the game and keep it in place."))
+        print(tr(AUTO_HINT_RU, AUTO_HINT_EN))
         if sys.platform == "win32":
             subprocess.Popen(["explorer", "/select,", str(shown)])
     c = r.get("sync", r)  # cross-check the recommended file
