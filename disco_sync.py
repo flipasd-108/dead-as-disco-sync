@@ -27,11 +27,13 @@ AUTO_HINT_RU = ("Дальше в игре открой песню и нажми 
                 "игра сама точно ставит темп и смещение. Числа выше нужны, только если она промахнулась.")
 AUTO_HINT_EN = ("Then open the song in the game and press Auto-detect: the track already starts on a beat, so the game's "
                 "own detection sets the tempo and offset right. The numbers above are only for when it misses.")
-MEDIA_TYPES = "*.mp3 *.wav *.flac *.ogg *.m4a *.opus *.aac *.wma *.aiff *.mp4 *.mkv *.webm *.mov"
-GUI_HELP_RU = ("Готовая песня появится в «Моей музыке» после перезапуска игры: открой её и нажми «Автоматическое "
-               "определение». Двойной щелчок по песне открывает её папку, правый щелчок показывает остальные действия.")
-GUI_HELP_EN = ("The song shows up in My Music after a game restart: open it and press Auto-detect. "
-               "Double-click a song to open its folder, right-click for more.")
+# the game's own import takes these 8; the tool also reads opus and video and always hands the game a WAV
+MEDIA_TYPES = "*.wav *.mp3 *.ogg *.flac *.aiff *.m4a *.wma *.aac *.opus *.mp4 *.mkv *.webm *.mov"
+GUI_HELP_RU = ("Файлы: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC, как в самой игре, а ещё OPUS и видео MP4, MKV, WEBM, "
+               "MOV. Готовая песня появится в «Моей музыке» после перезапуска игры: открой её и нажми «Автоматическое "
+               "определение».")
+GUI_HELP_EN = ("Files: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC, same as the game, plus OPUS and MP4, MKV, WEBM, MOV "
+               "video. The song shows up in My Music after a game restart: open it and press Auto-detect.")
 GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
 
 
@@ -434,6 +436,12 @@ def gui(out_dir: Path, src: str = ""):
     browse = ttk.Button(cv, text=tr("Обзор", "Browse"), command=pick)
     start = ttk.Button(cv, text=tr("Старт", "Start"), style="Accent.TButton", command=lambda: go())
     t_help = text(GUI_HELP_RU if RU else GUI_HELP_EN, dim)
+    t_list = text(tr("3. Готовые песни: выдели песню и нажми кнопку справа, или дважды щёлкни по ней, "
+                     "или щёлкни правой кнопкой мыши", "3. Finished songs: select one and press a button on the "
+                     "right, double-click it, or right-click it"))
+    act_open = ttk.Button(cv, text=tr("Открыть папку", "Open folder"), command=lambda: open_row())
+    act_wav = ttk.Button(cv, text=tr("Показать WAV", "Show WAV"), command=lambda: show_wav(selected()[0][1]))
+    act_del = ttk.Button(cv, text=tr("Удалить", "Delete"), command=lambda: delete_rows())
     table = ttk.Frame(cv)
 
     # CPU or the NVIDIA card: the choice lives in songs\gpu.txt, the .bat picks the matching build on the next start
@@ -445,7 +453,7 @@ def gui(out_dir: Path, src: str = ""):
     gpu_chk = ttk.Checkbutton(cv, text=tr(f"Считать на видеокарте {card}", f"Use the graphics card {card}"),
                               variable=gpu_var, command=lambda: set_gpu(gpu_var.get()))
     t_gpu = text("", dim)
-    widgets = (game_path, game_btn, entry, browse, start, table) + ((gpu_chk,) if card else ())
+    widgets = (game_path, game_btn, entry, browse, start, act_open, act_wav, act_del, table) + ((gpu_chk,) if card else ())
     wins = {w: cv.create_window(0, 0, anchor="nw", window=w) for w in widgets}
     if not card:
         cv.itemconfigure(t_gpu, state="hidden")
@@ -480,7 +488,18 @@ def gui(out_dir: Path, src: str = ""):
         put_text(t_game, 16)
         put_text(t_song_title, 4)
         put_row(entry, [browse, start], 6)
-        put_text(t_help, 12)
+        put_text(t_help, 16)
+        acts = (act_open, act_wav, act_del)  # buttons on the right, the title wraps in what is left
+        h = max(b.winfo_reqheight() for b in acts)
+        x = x0 + width
+        for b in reversed(acts):
+            x -= b.winfo_reqwidth()
+            cv.coords(wins[b], x, y)
+            x -= 8
+        cv.itemconfigure(t_list, width=max(x - 8 - x0, 120))
+        x1, y1, x2, y2 = cv.bbox(t_list)
+        cv.coords(t_list, x0, y + max((h - (y2 - y1)) // 2, 0))
+        y += max(h, y2 - y1) + 8
         bottom = gpu_chk.winfo_reqheight() + 10 if card else 0
         cv.coords(wins[table], x0, y)
         cv.itemconfigure(wins[table], width=width, height=max(H - y - 24 - bottom, 80))
@@ -679,6 +698,16 @@ def gui(out_dir: Path, src: str = ""):
     tree.bind("<Return>", open_row)
     tree.bind("<Delete>", delete_rows)
     tree.bind("<Button-3>", popup)
+
+    def sync_actions(_=None):
+        """The action buttons follow the selection: grey when they would do nothing."""
+        sel = selected()
+        h, v = sel[0] if sel else ({}, None)
+        act_open.configure(state="normal" if v or h.get("error") else "disabled")
+        act_wav.configure(state="normal" if v and Path(v["wav"]).exists() else "disabled")
+        act_del.configure(state="normal" if sel and h is not current.get("h") else "disabled")
+
+    tree.bind("<<TreeviewSelect>>", sync_actions, add="+")
     for h in history:
         add_rows(h, "end")
 
@@ -803,6 +832,7 @@ def gui(out_dir: Path, src: str = ""):
                 "Закрой программу и запусти снова: докачается версия для видеокарты.",
                 "Close the tool and start it again: the GPU version will download."))
 
+    sync_actions()
     root.after(800, offer_gpu)
     pump()
     if src:  # a file dropped onto the .bat starts right away
