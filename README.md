@@ -4,6 +4,16 @@
 
 Программа для «Моей музыки» в Dead as Disco. Берёт песню с YouTube или из файла, находит доли, подрезает трек так, чтобы он начинался ровно на доле, и сама добавляет его в игру. В игре остаётся нажать «Автоматическое определение». Проверено в игре на стриме.
 
+## Требования
+
+- Windows 10 или 11.
+- Интернет при каждом запуске: батник берёт программу из последнего релиза на GitHub. Первый запуск ещё скачивает около 1 ГБ, с видеокартой ещё около 2,5 ГБ.
+- Место на диске: около 1 ГБ, с видеокартой ещё около 4 ГБ.
+- Dead as Disco на этом же компьютере, и в «Моей музыке» уже есть хотя бы одна песня, добавленная через игру. Иначе программа сделает WAV, но добавить его в игру придётся вручную.
+- Видеокарта NVIDIA не обязательна.
+
+Скачивать нужно только DeadAsDiscoSync.bat, остальное он поставит сам. Кто пользовался версией до 1.6, скачивает батник заново: старый открывает консоль вместо окна. Своего `disco_sync.py` рядом с батником быть не должно, иначе батник запустит его вместо свежей версии.
+
 ## Запуск (Windows)
 
 1. Скачать **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** и положить в отдельную папку: рядом появится папка `songs` с готовыми песнями.
@@ -48,6 +58,18 @@
 ## English
 
 A tool for Dead as Disco's **My Music**. It takes a song from YouTube or a file, finds the beats, trims the track to start exactly on a beat and adds it to the game. In the game you only press **Auto-detect**. Tested in game on stream.
+
+Requirements:
+
+- Windows 10 or 11.
+- Internet on every start: the .bat fetches the tool from the latest GitHub release. The first start also downloads about 1 GB, about 2.5 GB more with the GPU option.
+- Disk space: about 1 GB, about 4 GB more with the GPU option.
+- Dead as Disco on the same PC, with at least one song already imported through the game. Otherwise the tool makes the WAV, but you add it to the game by hand.
+- An NVIDIA card is optional.
+
+DeadAsDiscoSync.bat is the only download; it installs the rest. If you used a version before 1.6, download the .bat again: the old one opens a console instead of the window. Don't keep a `disco_sync.py` of your own next to the .bat, or it runs that instead of the latest version.
+
+Steps:
 
 1. Download **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** into its own folder: a `songs` folder with the finished songs appears next to it.
 2. Run it. If Windows warns about a downloaded file, allow it. The first run installs uv, Python, libraries and models: about 1 GB, a few minutes. Keep the black console window open meanwhile.
