@@ -13,6 +13,8 @@ Run:  uv run disco_sync.py "https://youtu.be/..."   (or a local file path)
 Import the WAV it writes into the game: the offset is measured on exactly that file.
 """
 import hashlib, json, locale, os, random, shutil, subprocess, sys, time
+from concurrent.futures import ProcessPoolExecutor
+from functools import cache
 from pathlib import Path
 
 import numpy as np
@@ -148,7 +150,11 @@ def warp_to_grid(audio: np.ndarray, sr: int, beats: np.ndarray, idx: np.ndarray,
     src, dst = src[ok], dst[ok]
     end = len(audio) - 1
     anchors = np.array([np.r_[0, src * sr, end], np.r_[0, dst * sr, dst[-1] * sr + end - src[-1] * sr]])
-    out = pytsmod.hptsm(audio.T, anchors).T  # harmonic/percussive split keeps drum attacks sharp
+    # harmonic/percussive split keeps drum attacks sharp; it loops in Python, so each channel gets its own process
+    chans = audio.T if audio.ndim == 2 else audio[None]
+    with ProcessPoolExecutor(len(chans)) as ex:
+        out = np.stack([np.ravel(c) for c in ex.map(pytsmod.hptsm, chans, [anchors] * len(chans))], axis=-1)
+    out = out if audio.ndim == 2 else out[:, 0]
     return out / max(1.0, np.abs(out).max())  # stretching can overshoot full scale: avoid clipping
 
 
@@ -194,12 +200,21 @@ GOOD_MS = 20  # players: under ~20 ms off the grid feels right
 CHECKPOINTS = ("final0", "final1", "final2")  # three independently trained Beat This! models vote
 
 
+@cache
+def beat_model(checkpoint: str):
+    """Loaded once per run: the window analyses many songs, and the sync pass reuses them."""
+    from beat_this.inference import Audio2Beats
+    return Audio2Beats(checkpoint_path=checkpoint, device="cpu", dbn=False)
+
+
 def analyze(wav: Path, warp: bool = True, period: float | None = None):
     """Beat grid of the file. With warp, an unsteady track also gets a "(sync)" copy warped onto one tempo."""
-    from beat_this.inference import Audio2Beats
     audio, sr = sf.read(wav, dtype="float64")
     mono = audio.mean(1) if audio.ndim == 2 else audio
-    tracks = [np.asarray(Audio2Beats(checkpoint_path=c, device="cpu", dbn=False)(mono, sr)[0]) for c in CHECKPOINTS]
+    tracks = [np.asarray(beat_model(c)(mono, sr)[0]) for c in CHECKPOINTS]
+    tracks = [b for b in tracks if len(b) >= 8]  # a model can find no beat at all in ambient, speech or silence
+    if not tracks:
+        sys.exit(tr("В треке не нашлось долей: нужна песня с ритмом.", "No beats found: the track needs a rhythm."))
     bpm_votes = [60 / fit_grid(b)[0] for b in tracks] if period is None else [60 / period]
     period = 60 / float(np.median(bpm_votes))  # a warped file's tempo is known exactly: second pass passes it
 
@@ -528,6 +543,8 @@ def gui(out_dir: Path, src: str = ""):
 
     entry.bind("<Return>", go)
     entry.focus_set()
+    # load the models while the user pastes a link; a song started earlier just waits on the same cache
+    threading.Thread(target=lambda: [beat_model(c) for c in CHECKPOINTS], daemon=True).start()
     pump()
     if src:  # a file dropped onto the .bat starts right away
         root.after(300, go)
