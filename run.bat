@@ -6,6 +6,8 @@ where uv >nul 2>nul || powershell -ExecutionPolicy ByPass -c "irm https://astral
 where uv >nul 2>nul || set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 set "SCRIPT=%~dp0disco_sync.py"
 if not exist "%SCRIPT%" set "SCRIPT=https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/disco_sync.py"
-echo Dead as Disco Sync: the window opens in a moment (the first run downloads ~1 GB, a few minutes).
+chcp 65001 >nul
+echo Dead as Disco Sync: окно сейчас откроется. Первый запуск качает около 1 ГБ, это несколько минут: не закрывай это окно.
+echo Dead as Disco Sync: the window opens in a moment. The first run downloads about 1 GB, a few minutes: keep this open.
 uv run "%SCRIPT%" --gui "%~dp0songs" "%~1"
 if errorlevel 1 pause
