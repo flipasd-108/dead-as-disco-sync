@@ -62,24 +62,20 @@ def game_analysed(songs: Path, ours: Path) -> list[dict]:
 def add_to_game(r: dict) -> Path | None:
     """Add the song to the game's My Music the way its own import does: a folder with the audio and Meta.json.
     Only creates a new folder, never touches existing songs."""
-    sample = next((f for f in GAME_SONGS.glob("*/Audio*") if f.is_file()), None) if GAME_SONGS.is_dir() else None
-    if sample is None:  # game not installed here, or no import of its own to copy the audio file layout from
+    if not GAME_SONGS.parent.is_dir():  # no Pagoda\Saved: the game never ran here
         return None
+    GAME_SONGS.mkdir(exist_ok=True)  # the game creates it only on the first import of its own
     name = "".join("_" if c in '<>:"/\\|?*' else c for c in r["wav"].stem).strip(" .")
     folder, n = GAME_SONGS / name, 2
     while folder.exists():
         folder, n = GAME_SONGS / f"{name} ({n})", n + 1
     folder.mkdir()
-    audio = folder / ("Audio" + sample.suffix)
-    if sample.suffix.lower() in ("", ".wav"):
-        shutil.copyfile(r["wav"], audio)
-    else:  # the game keeps another format: convert, the WAV already starts on a beat
-        subprocess.run([FFMPEG, "-y", "-v", "error", "-i", str(r["wav"]), str(audio)], check=True)
-    beat_offset = r.get("game_offset", r["offset"])  # what the game's own Auto-detect would set: no need to press it
+    # the game's exe names the file Audio.ogg itself, any source format is converted to it
+    subprocess.run([FFMPEG, "-y", "-v", "error", "-i", str(r["wav"]), str(folder / "Audio.ogg")], check=True)
     meta = {
         "version": 1, "uniqueId": random.getrandbits(32), "songName": folder.name, "performedBy": [], "writtenBy": [],
         "seed": random.getrandbits(31), "tempo": r["bpm"], "customTempoSections": [],
-        "beatOffset": beat_offset, "startSongOffset": r["start"], "endSongOffset": 0, "uEAssetName": folder.name,
+        "beatOffset": r["offset"], "startSongOffset": r["start"], "endSongOffset": 0, "uEAssetName": folder.name,
         "originalAudioFileHash": hashlib.md5(r["wav"].read_bytes()).hexdigest(),
         "originalAudioFilePath": r["wav"].as_posix(),
         "analyseResult": {"bAnalyseSuccessful": False, "bFoundTempo": False, "bFoundOffset": False, "tempo": 0,
@@ -311,8 +307,9 @@ def analyze(wav: Path, warp: bool = True, period: float | None = None):
     # the game's Auto-detect is Beat This model 1 with a grid fit: on three real songs it matched within 0.5 ms and
     # 0.0006 BPM. Run it on the finished file, as the game would, and hand the game that offset
     game = np.asarray(beat_model(CHECKPOINTS[0])(aligned.mean(1) if aligned.ndim == 2 else aligned, sr)[0])
-    game_offset = round(grid_t0(game, period) % period * 1000) if len(game) >= 8 else 0
-    res |= dict(offset=0, start=0.0, dur=len(aligned) / sr, trim=trim, game_offset=game_offset)
+    # the file starts on our beat; the offset is where the game's own Auto-detect puts it, shown and written as is
+    offset = round(grid_t0(game, period) % period * 1000) if len(game) >= 8 else 0
+    res |= dict(offset=offset, start=0.0, dur=len(aligned) / sr, trim=trim)
     return res
 
 
@@ -337,6 +334,16 @@ def _selftest():
         songs.mkdir(parents=True)
         assert find_game_songs(Path(t)) == songs and find_game_songs(songs.parent.parent) == songs
         assert find_game_songs(songs) == songs and game_status(songs) != game_status(Path(t) / "nope")
+    global GAME_SONGS
+    with tempfile.TemporaryDirectory() as t:  # a fresh game: Saved exists, ImportedSongs not yet
+        game, GAME_SONGS = GAME_SONGS, Path(t) / "Saved" / "ImportedSongs"
+        GAME_SONGS.parent.mkdir()
+        wav = Path(t) / "a.wav"
+        sf.write(wav, np.zeros((4800, 2)), 48000)
+        folder = add_to_game(dict(wav=wav, bpm=120.5, offset=7, start=0.0))
+        GAME_SONGS = game
+        meta = json.loads((folder / "Meta.json").read_text(encoding="utf-8"))
+        assert (folder / "Audio.ogg").stat().st_size > 0 and meta["beatOffset"] == 7 and meta["tempo"] == 120.5
     with tempfile.TemporaryDirectory() as t:
         songs, ours = Path(t) / "ImportedSongs", Path(t) / "songs"
         for i, (src, off, done) in enumerate(((ours, 31, True), (ours, 29, True), (ours, 30, True),
@@ -379,12 +386,9 @@ def find_game_songs(d: Path) -> Path:
 
 
 def game_status(d: Path) -> str:
-    if not d.is_dir():
+    if not d.is_dir() and not (d.name == "ImportedSongs" and d.parent.is_dir()):
         return tr("не найдена, укажи вручную", "not found, pick it")
-    n = sum(1 for f in d.glob("*/Audio*") if f.is_file())
-    if not n:  # add_to_game copies the audio format from a song the game imported itself
-        return tr("пустая: сначала добавь одну песню через игру, потом программа сможет добавлять",
-                  "empty: import one song in the game first, then the tool can add songs")
+    n = sum(1 for f in d.glob("*/Meta.json") if f.is_file())
     return tr(f"найдена, песен: {n}", f"found, {n} songs")
 
 
@@ -1004,8 +1008,9 @@ def show(r: dict, title: str):
         print(tr(f"  Подрезка: добавил {num(-r['trim'], 3)} с тишины в начало (там затакт), трек начинается на доле",
                  f"  Trim: added {num(-r['trim'], 3)} s of silence (pickup notes), the track starts on the beat"))
     if r["bpm"] < 120:
-        print(tr(f"  Игра советует темп 120–200: можно вбить {num(2 * r['bpm'], 2)}, смещение то же",
-                 f"  The game suggests 120-200 BPM: you can enter {num(2 * r['bpm'], 2)}, same offset"))
+        half = round(r["offset"] % (30000 / r["bpm"]))
+        print(tr(f"  Игра советует темп 120–200: можно вбить {num(2 * r['bpm'], 2)} и смещение {half}",
+                 f"  The game suggests 120-200 BPM: you can enter {num(2 * r['bpm'], 2)} and offset {half}"))
 
 if __name__ == "__main__":
     main()

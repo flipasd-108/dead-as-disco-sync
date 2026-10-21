@@ -45,7 +45,7 @@ DeadAsDiscoSync.bat is the only download; it installs the rest. If you used a ve
 
 **Windows warns about a downloaded file.** The .bat comes from the internet and isn't signed, so Windows may ask whether to run it. Allow it. Open it in Notepad to see what it does: it's 18 lines.
 
-**The song isn't in the game.** Restart the game: Reload Directory doesn't pick up new songs. If it's still missing, check step 1 in the window: the folder must be found and not empty. Last resort: add the WAV from the `songs` folder to the game by hand (the Show WAV button). It's trimmed to the beat, the source MP3 isn't.
+**The song isn't in the game.** Restart the game: Reload Directory doesn't pick up new songs. If it's still missing, check step 1 in the window: the folder must be found. Last resort: add the WAV from the `songs` folder to the game by hand (the Show WAV button). It's trimmed to the beat, the source MP3 isn't.
 
 **Hits land off the beat.** Press Auto-detect in the game, or enter the tempo from the tool's song list by hand. If a song has two versions, `(sync)` plays steadier: the drifting tempo of live drums is evened out in it.
 
@@ -80,7 +80,7 @@ The developers said in an [80.lv interview](https://80.lv/articles/interview-how
 
 - Three independently trained [Beat This!](https://github.com/CPJKU/beat_this) models (CPJKU, 2024) find the beats. A least-squares grid through them gives the tempo to 0.01 BPM.
 - The first beat is placed by the models' votes plus a vote from drum attacks: the attacks win when they agree with the models within 12 ms, otherwise the models' median does.
-- The WAV is cut to that beat, or padded with silence back to the previous beat when there are pickup notes, so Beat Offset and Start Time are always 0.
+- The WAV is cut to that beat, or padded with silence back to the previous beat when there are pickup notes, so Start Time is always 0 and Beat Offset is the few ms the game's grid sits from the file start. A grid a few ms early is written as almost a whole beat: at 93 BPM, −3 ms shows as 642.
 - If the tempo drifts more than 20 ms (a live drummer), you get two versions: the original and a `(sync)` copy stretched or squeezed by 1–2% between beats so the whole song runs at one tempo. Both go into the game.
 - The game's Auto-detect is the same Beat This model 1 with a constant grid (the game's log loads a BeatThis plugin). On three songs the game's tempo and offset matched it within 0.0006 BPM and 0.5 ms. So the tool runs that model on the finished file and writes its tempo and offset into the game: the same result as pressing Auto-detect.
 - A song goes into the game the way the game's own import puts it: a folder with an `Audio` file and `Meta.json` in `%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`. Other songs are never touched.
