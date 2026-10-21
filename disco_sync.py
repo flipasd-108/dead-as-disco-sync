@@ -4,7 +4,7 @@
 # dependencies = [
 #   "beat-this==1.1.0", "torch==2.14.1", "torchaudio==2.11.0", "einops==0.8.2", "rotary-embedding-torch==0.9.1",
 #   "soxr==1.1.0", "numpy==2.4.6", "scipy==1.17.1", "soundfile==0.14.0", "imageio-ffmpeg==0.6.0",
-#   "pytsmod==0.3.8", "customtkinter==5.2.2", "yt-dlp[default,deno]",
+#   "pytsmod==0.3.8", "sv-ttk==2.6.0", "yt-dlp[default,deno]",
 # ]
 # ///
 """Dead as Disco sync: YouTube link or audio file -> WAV + BPM / Beat Offset / Start Time.
@@ -26,14 +26,10 @@ AUTO_HINT_RU = ("Дальше в игре открой песню и нажми 
 AUTO_HINT_EN = ("Then open the song in the game and press Auto-detect: the track already starts on a beat, so the game's "
                 "own detection sets the tempo and offset right. The numbers above are only for when it misses.")
 MEDIA_TYPES = "*.mp3 *.wav *.flac *.ogg *.m4a *.opus *.aac *.wma *.aiff *.mp4 *.mkv *.webm *.mov"
-GUI_HELP_RU = ("Подходят ссылки YouTube, SoundCloud, VK, аудио MP3, WAV, FLAC, OGG, M4A и видео MP4, MKV. "
-               "Spotify и Яндекс Музыка не подходят.\n\nПесня сама появится в «Моей музыке» после перезапуска игры. "
-               "Открой её и нажми «Автоматическое определение».\n\nПервый запуск качает около 1 ГБ.")
-GUI_HELP_EN = ("Takes YouTube, SoundCloud and VK links, MP3, WAV, FLAC, OGG, M4A audio and MP4, MKV video. "
-               "Not Spotify.\n\nThe song shows up in My Music after a game restart. Open it there and press "
-               "Auto-detect.\n\nThe first run downloads about 1 GB.")
-P = dict(bg="#121019", panel="#1E1A2B", line="#332C49", hover="#40385C", text="#FAF7EC", dim="#A39DB8",
-         accent="#FFE600", accent_hover="#E6CF00", on_accent="#121019", ok="#7DD3FC", error="#FF5C7A")  # DESIGN.md
+GUI_HELP_RU = ("Подходят ссылки YouTube, SoundCloud, VK и аудио- или видеофайлы. Spotify и Яндекс Музыка не подходят. "
+               "Готовая песня появится в «Моей музыке» после перезапуска игры.")
+GUI_HELP_EN = ("Takes YouTube, SoundCloud and VK links and audio or video files, not Spotify. "
+               "A finished song shows up in My Music after a game restart.")
 GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
 
 
@@ -307,11 +303,11 @@ def tempo_txt(v: dict) -> str:
 
 
 def gui(out_dir: Path, src: str = ""):
-    """Window: input on the left, every analysed song on the right; a click on a song shows its settings and folders."""
+    """Window: input on top, songs in a table, the selected song's settings and folders below it."""
     global GAME_SONGS
-    import queue, threading, traceback
-    import customtkinter as ctk
-    from tkinter import filedialog
+    import ctypes, queue, threading, traceback, tkinter as tk, winreg
+    from tkinter import filedialog, ttk
+    import sv_ttk
     out_dir = out_dir.resolve()
     saved, hist_file = out_dir / "game_folder.txt", out_dir / "history.json"  # both live next to the WAVs
     try:
@@ -322,37 +318,31 @@ def gui(out_dir: Path, src: str = ""):
         history = json.loads(hist_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         history = []
-    H, B, S, N = ("Bahnschrift SemiBold", 24), ("Segoe UI", 13), ("Segoe UI", 11), ("Bahnschrift SemiBold", 20)
-    ctk.set_appearance_mode("dark")
-    root = ctk.CTk(fg_color=P["bg"])
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # sharp text on scaled screens instead of a blurry bitmap
+    except (AttributeError, OSError):
+        pass
+    root = tk.Tk()
     root.title("Dead as Disco Sync")
-    root.geometry("1000x640")
-    root.minsize(820, 520)
+    root.geometry("900x640")
+    root.minsize(720, 520)
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+        light = winreg.QueryValueEx(key, "AppsUseLightTheme")[0]
+    except OSError:
+        light = 1
+    sv_ttk.set_theme("light" if light else "dark")  # follow the Windows setting
+    if not light:  # dark title bar to match (Windows 10 2004+ / 11), once the window exists
+        root.after(50, lambda: ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            ctypes.windll.user32.GetParent(root.winfo_id()), 20, ctypes.byref(ctypes.c_int(1)), 4))
+    pad = dict(padx=12, pady=(12, 0))
 
-    def label(m, t, f=B, c=P["text"], **kw):
-        return ctk.CTkLabel(m, text=t, font=f, text_color=c, justify="left", anchor="w", **kw)
-
-    def button(m, t, cmd, height=30, **kw):
-        return ctk.CTkButton(m, text=t, command=cmd, font=S, height=height, fg_color=P["line"],
-                             hover_color=P["hover"], text_color=P["text"], corner_radius=10, **kw)
-
-    def reveal(path: str):
-        if Path(path).exists():
-            subprocess.Popen(["explorer", "/select,", path])
-
-    def open_dir(d: Path):
-        if d.is_dir():
-            os.startfile(d)
-
-    # left column: input, start, folders
-    left = ctk.CTkFrame(root, fg_color="transparent", width=300)
-    left.pack(side="left", fill="y", padx=(24, 0), pady=20)
-    left.pack_propagate(False)
-    label(left, "DEAD AS\nDISCO SYNC", H, P["accent"]).pack(anchor="w")
-    label(left, tr("Ссылка или файл", "Link or file"), S, P["dim"]).pack(anchor="w", pady=(20, 4))
-    entry = ctk.CTkEntry(left, height=40, font=B, fg_color=P["bg"], border_color=P["line"], text_color=P["text"],
-                         placeholder_text="https://youtu.be/...")
-    entry.pack(fill="x")
+    # input row
+    top = ttk.Frame(root)
+    top.pack(fill="x", **pad)
+    ttk.Label(top, text=tr("Ссылка на YouTube или файл:", "YouTube link or file:")).pack(side="left")
+    entry = ttk.Entry(top)
+    entry.pack(side="left", fill="x", expand=True, padx=8)
     if src:
         entry.insert(0, src)
 
@@ -363,20 +353,20 @@ def gui(out_dir: Path, src: str = ""):
             entry.delete(0, "end")
             entry.insert(0, f)
 
-    button(left, tr("Выбрать файл...", "Pick a file..."), pick, height=40).pack(fill="x", pady=8)
-    start = ctk.CTkButton(left, text=tr("СТАРТ", "START"), height=40, font=("Bahnschrift SemiBold", 16),
-                          fg_color=P["accent"], hover_color=P["accent_hover"], text_color=P["on_accent"],
-                          corner_radius=10, command=lambda: go())
-    start.pack(fill="x")
-    label(left, GUI_HELP_RU if RU else GUI_HELP_EN, S, P["dim"], wraplength=290).pack(anchor="w", pady=(16, 0))
+    ttk.Button(top, text=tr("Обзор...", "Browse..."), command=pick).pack(side="left")
+    start = ttk.Button(top, text=tr("Старт", "Start"), style="Accent.TButton", command=lambda: go())
+    start.pack(side="left", padx=(8, 0))
+    ttk.Label(root, text=GUI_HELP_RU if RU else GUI_HELP_EN, foreground="gray", wraplength=860, justify="left"
+              ).pack(fill="x", padx=12, pady=(6, 0))
 
-    foot = ctk.CTkFrame(left, fg_color="transparent")
-    foot.pack(side="bottom", fill="x")
-    game_lbl = label(foot, "", S, P["dim"], wraplength=290)
-    game_lbl.pack(anchor="w")
+    # status bar: game folder and the WAV folder
+    bar = ttk.Frame(root)
+    bar.pack(side="bottom", fill="x", padx=12, pady=12)
+    game_lbl = ttk.Label(bar)
+    game_lbl.pack(side="left", fill="x", expand=True)
 
     def show_game():
-        game_lbl.configure(text=tr("Папка игры: ", "Game folder: ") + game_status(GAME_SONGS) + f"\n{GAME_SONGS}")
+        game_lbl.configure(text=tr("Папка игры: ", "Game folder: ") + game_status(GAME_SONGS))
 
     def pick_game():
         global GAME_SONGS
@@ -387,116 +377,131 @@ def gui(out_dir: Path, src: str = ""):
             saved.write_text(str(GAME_SONGS), encoding="utf-8")
             show_game()
 
-    row = ctk.CTkFrame(foot, fg_color="transparent")
-    row.pack(fill="x", pady=(6, 0))
-    button(row, tr("Папка игры...", "Game folder..."), pick_game, width=140).pack(side="left")
-    button(row, tr("Готовые WAV", "Finished WAVs"), lambda: open_dir(out_dir), width=140).pack(side="right")
+    def open_dir(d: Path):
+        if d.is_dir():
+            os.startfile(d)
+
+    ttk.Button(bar, text=tr("Готовые WAV", "Finished WAVs"), command=lambda: open_dir(out_dir)).pack(side="right")
+    ttk.Button(bar, text=tr("Папка игры...", "Game folder..."), command=pick_game).pack(side="right", padx=8)
     show_game()
 
-    # right column: songs, newest on top, a click unfolds the settings
-    songs = ctk.CTkScrollableFrame(root, fg_color=P["panel"], corner_radius=14, label_text=tr("Песни", "Songs"),
-                                   label_fg_color=P["panel"], label_text_color=P["dim"], label_font=S)
-    songs.pack(side="left", fill="both", expand=True, padx=24, pady=20)
-    empty = label(songs, tr("Здесь появятся песни. Нажми на песню, чтобы увидеть настройки и папки.",
-                            "Songs show up here. Click one for its settings and folders."), S, P["dim"])
+    # selected song: settings for the game
+    info = ttk.LabelFrame(root, text=tr("Настройки для игры", "Settings for the game"), padding=12)
+    info.pack(side="bottom", fill="x", padx=12, pady=(12, 0))
+    pick_var = tk.IntVar(value=0)
+    choice = ttk.Frame(info)
+    fields = {}
+    grid = ttk.Frame(info)
+    grid.pack(fill="x")
+    for col, (k, t) in enumerate((("bpm", tr("Темп", "BPM")), ("offset", tr("Смещение ритма, мс", "Beat offset, ms")),
+                                  ("start", tr("Время начала, с", "Start time, s")),
+                                  ("end", tr("Время окончания, с", "End time, s")))):
+        ttk.Label(grid, text=t).grid(row=0, column=col, sticky="w", padx=(0, 12))
+        e = ttk.Entry(grid, width=12, state="readonly")  # readonly: selectable and copyable, not editable
+        e.grid(row=1, column=col, sticky="w", padx=(0, 12), pady=(4, 0))
+        fields[k] = e
+    note = ttk.Label(info, foreground="gray", wraplength=840, justify="left")
+    note.pack(fill="x", pady=(8, 0))
+    acts = ttk.Frame(info)
+    acts.pack(fill="x", pady=(8, 0))
+    btn_game = ttk.Button(acts, text=tr("Папка в игре", "Folder in game"))
+    btn_wav = ttk.Button(acts, text=tr("Показать WAV", "Show WAV"))
+    btn_log = ttk.Button(acts, text=tr("Лог", "Log"))
+    for b in (btn_game, btn_wav, btn_log):
+        b.pack(side="left", padx=(0, 8))
+
+    def put(e, text):
+        e.configure(state="normal")
+        e.delete(0, "end")
+        e.insert(0, text)
+        e.configure(state="readonly")
+
+    def show_log(h):
+        w = tk.Toplevel(root)
+        w.title(h["name"])
+        w.geometry("760x480")
+        t = tk.Text(w, wrap="word", font=("Consolas", 10), borderwidth=0)
+        t.pack(fill="both", expand=True)
+        t.insert("end", h.get("log", "").strip())
+        t.configure(state="disabled")
+
+    # songs table, newest on top
+    table = ttk.Frame(root)
+    table.pack(fill="both", expand=True, padx=12, pady=(12, 0))
+    cols = ("name", "tempo", "state", "time")
+    tree = ttk.Treeview(table, columns=cols, show="headings", selectmode="browse")
+    for c, t, w in zip(cols, (tr("Песня", "Song"), tr("Темп", "BPM"), tr("Статус", "Status"), tr("Когда", "When")),
+                       (300, 80, 200, 130)):
+        tree.heading(c, text=t, anchor="w")
+        tree.column(c, width=w, stretch=c == "name")
+    scroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+    tree.configure(yscrollcommand=scroll.set)
+    tree.pack(side="left", fill="both", expand=True)
+    scroll.pack(side="right", fill="y")
+    rows = {}  # tree item id -> history entry
+
+    def state_txt(h):
+        if h.get("busy"):
+            return h.get("step", "")
+        if h.get("error"):
+            return tr("Ошибка", "Error")
+        vs = h["variants"]
+        where = tr("В игре", "In game") if any(v["game"] for v in vs) else tr("WAV готов", "WAV ready")
+        return where + (tr(", 2 варианта", ", 2 options") if len(vs) > 1 else "")
+
+    def row_values(h):
+        tempo = tempo_txt(h["variants"][-1]) if h.get("variants") else ""
+        return h["name"], tempo, state_txt(h), h.get("time", "")
+
+    def add_row(h, top_=False):
+        iid = tree.insert("", 0 if top_ else "end", values=row_values(h))
+        rows[iid] = h
+        return iid
+
+    def show_info(*_):
+        sel = tree.selection()
+        h = rows.get(sel[0]) if sel else None
+        vs = (h or {}).get("variants", [])
+        for w in choice.winfo_children():
+            w.destroy()
+        choice.pack_forget()
+        if len(vs) > 1:
+            choice.pack(fill="x", pady=(0, 8), before=grid)
+            for i, v in enumerate(vs):
+                ttk.Radiobutton(choice, text=v["title"], variable=pick_var, value=i, command=show_info
+                                ).pack(side="left", padx=(0, 16))
+        v = vs[min(pick_var.get(), len(vs) - 1)] if vs else None
+        for k, val in (("bpm", tempo_txt(v) if v else ""), ("offset", str(v["offset"]) if v else ""),
+                       ("start", num(v["start"], 2) if v else ""), ("end", num(v["dur"], 3) if v else "")):
+            put(fields[k], val)
+        if v:
+            trim = (tr(f"Отрезано {num(v['trim'], 3)} с до первой доли", f"Cut {num(v['trim'], 3)} s before the first beat")
+                    if v["trim"] > 0 else tr(f"Добавлено {num(-v['trim'], 3)} с тишины в начало (затакт)",
+                                             f"Added {num(-v['trim'], 3)} s of silence (pickup notes)"))
+            note.configure(text=trim + tr(f", удары отходят от сетки на ~{v['jitter']:.0f} мс. ",
+                                          f", beats stray ~{v['jitter']:.0f} ms from the grid. ") + tr(
+                "В игре нажми «Автоматическое определение», цифры выше нужны, если оно промахнётся.",
+                "In the game press Auto-detect; the numbers above are for when it misses."))
+        else:
+            note.configure(text=(h or {}).get("error") or tr("Выбери песню в списке.", "Pick a song in the list."))
+        btn_game.configure(state="normal" if v and v["game"] else "disabled",
+                           command=lambda: open_dir(Path(v["game"])))
+        btn_wav.configure(state="normal" if v and Path(v["wav"]).exists() else "disabled",
+                          command=lambda: subprocess.Popen(["explorer", "/select,", v["wav"]]))
+        btn_log.configure(state="normal" if h and not h.get("busy") else "disabled", command=lambda: show_log(h))
+
+    def on_select(_):
+        pick_var.set(len(rows[tree.selection()[0]].get("variants", [])) - 1 if tree.selection() else 0)
+        show_info()  # a song with two options opens on the recommended one
+
+    tree.bind("<<TreeviewSelect>>", on_select)
+    for h in history:
+        add_row(h)
+    show_info()
 
     def save_history():
         out_dir.mkdir(parents=True, exist_ok=True)
         hist_file.write_text(json.dumps(history[:200], ensure_ascii=False, indent=1), encoding="utf-8")
-
-    def details(h: dict, box):
-        for v in h.get("variants", []):
-            if v["title"]:
-                label(box, v["title"], S, P["dim"]).pack(anchor="w", padx=12, pady=(8, 0))
-            plaques = ctk.CTkFrame(box, fg_color="transparent")
-            plaques.pack(anchor="w", padx=12, pady=(6, 0))
-            for k, val in ((tr("Темп", "BPM"), tempo_txt(v)), (tr("Смещение", "Offset"), str(v["offset"])),
-                           (tr("Начало", "Start"), num(v["start"], 2)), (tr("Конец", "End"), num(v["dur"], 3))):
-                c = ctk.CTkFrame(plaques, fg_color=P["panel"], corner_radius=10)
-                c.pack(side="left", padx=(0, 8))
-                label(c, k, S, P["dim"]).pack(padx=12, pady=(6, 0))
-                label(c, val, N, P["accent"]).pack(padx=12, pady=(0, 6))
-            trim = (tr(f"Отрезано {num(v['trim'], 3)} с до первой доли", f"Cut {num(v['trim'], 3)} s before the first beat")
-                    if v["trim"] > 0 else tr(f"Добавлено {num(-v['trim'], 3)} с тишины в начало (затакт)",
-                                             f"Added {num(-v['trim'], 3)} s of silence (pickup notes)"))
-            label(box, trim + tr(f". Удары гуляют ~{v['jitter']:.0f} мс", f". Beats wander ~{v['jitter']:.0f} ms"),
-                  S, P["dim"]).pack(anchor="w", padx=12, pady=(6, 0))
-            acts = ctk.CTkFrame(box, fg_color="transparent")
-            acts.pack(anchor="w", padx=12, pady=(6, 0))
-            if v["game"]:
-                button(acts, tr("Папка в игре", "Folder in game"), lambda g=v["game"]: open_dir(Path(g))
-                       ).pack(side="left", padx=(0, 6))
-            button(acts, tr("Показать WAV", "Show WAV"), lambda w=v["wav"]: reveal(w)).pack(side="left", padx=(0, 6))
-
-            def copy(t=tempo_txt(v)):
-                root.clipboard_clear()
-                root.clipboard_append(t)
-            button(acts, tr("Копировать темп", "Copy BPM"), copy).pack(side="left")
-        if h.get("error"):
-            label(box, h["error"], S, P["error"], wraplength=560).pack(anchor="w", padx=12, pady=(8, 0))
-        log = ctk.CTkTextbox(box, height=180, font=("Consolas", 11), fg_color=P["panel"], text_color=P["dim"])
-        log.insert("end", h.get("log", "").strip())
-        log.configure(state="disabled")
-        shown = [False]
-
-        def toggle_log():
-            shown[0] = not shown[0]
-            log.pack(fill="x", padx=12, pady=(6, 0)) if shown[0] else log.pack_forget()
-        button(box, tr("Лог", "Log"), toggle_log, width=60).pack(anchor="w", padx=12, pady=(8, 12))
-
-    def item(h: dict, top: bool):
-        empty.pack_forget()
-        f = ctk.CTkFrame(songs, fg_color=P["bg"], corner_radius=10)
-        f.pack(fill="x", pady=(0, 8), **({"before": frames[0]} if top and frames else {}))
-        if top:
-            frames.insert(0, f)
-        else:
-            frames.append(f)
-        head = ctk.CTkFrame(f, fg_color="transparent", cursor="hand2")
-        head.pack(fill="x")
-        name = label(head, h["name"], B)
-        name.pack(side="left", padx=12, pady=10)
-        state = label(head, "", S, P["dim"])
-        state.pack(side="right", padx=12)
-        tempo = label(head, "", N, P["accent"])
-        tempo.pack(side="right", padx=4)
-        box = ctk.CTkFrame(f, fg_color="transparent")
-        open_ = [False]
-
-        def toggle(_=None):
-            if h.get("busy"):
-                return
-            open_[0] = not open_[0]
-            if open_[0]:
-                details(h, box)
-                box.pack(fill="x")
-            else:
-                for w in box.winfo_children():
-                    w.destroy()
-                box.pack_forget()
-        for w in (head, name, state, tempo):
-            w.bind("<Button-1>", toggle)
-
-        def refresh():
-            name.configure(text=h["name"])
-            if h.get("busy"):
-                state.configure(text=h.get("step", ""), text_color=P["dim"])
-            elif h.get("error"):
-                state.configure(text=tr("✗ ошибка", "✗ error"), text_color=P["error"])
-            else:
-                vs = h["variants"]
-                tempo.configure(text=tempo_txt(vs[-1]))
-                where = tr("✓ в игре", "✓ in game") if any(v["game"] for v in vs) else tr("✓ WAV готов", "✓ WAV ready")
-                state.configure(text=where + (tr(", 2 варианта", ", 2 options") if len(vs) > 1 else ""),
-                                text_color=P["ok"])
-        refresh()
-        return refresh
-
-    frames = []  # song rows in screen order, to put a new one on top
-    for h in history:
-        item(h, top=False)
-    if not history:
-        empty.pack(anchor="w", padx=12, pady=12)
 
     # the analysis runs in a thread; tk is not thread-safe, so the thread only writes to the queue
     q = queue.Queue()
@@ -524,22 +529,25 @@ def gui(out_dir: Path, src: str = ""):
         s = entry.get().strip().strip('"')
         if not s or current:
             return
-        h = {"name": Path(s).stem if not s.startswith("http") else s, "src": s, "busy": True,
+        h = {"name": s if s.startswith("http") else Path(s).stem, "src": s, "busy": True,
              "step": tr("Начинаю...", "Starting..."), "log": "", "time": time.strftime("%Y-%m-%d %H:%M")}
-        current.update(h=h, refresh=item(h, top=True))
+        iid = add_row(h, top_=True)
+        current.update(h=h, iid=iid)
+        tree.selection_set(iid)
         entry.delete(0, "end")  # ready for the next link while this one runs
         start.configure(state="disabled")
         threading.Thread(target=work, args=(s,), daemon=True).start()
 
-    def finish(h: dict):
+    def finish(h):
         h.pop("busy", None)
         h.pop("step", None)
         history.insert(0, h)
         save_history()
-        current["refresh"]()
+        tree.item(current["iid"], values=row_values(h))
         current.clear()
         start.configure(state="normal")
         show_game()
+        show_info()
 
     def pump():
         while not q.empty():
@@ -549,14 +557,13 @@ def gui(out_dir: Path, src: str = ""):
                 continue
             if msg[0] == "log":
                 h["log"] += msg[1]
-                line = next((ln.strip() for ln in reversed(h["log"].splitlines()) if ln.strip()), "")
-                h["step"] = line if len(line) <= 48 else line[:47] + "…"
-                current["refresh"]()
+                h["step"] = next((ln.strip() for ln in reversed(h["log"].splitlines()) if ln.strip()), "")[:60]
+                tree.item(current["iid"], values=row_values(h))
             elif msg[0] == "done":
                 r, games = msg[1], msg[2]
                 vs = [r] + ([r["sync"]] if "sync" in r else [])
                 titles = [""] if len(vs) == 1 else [tr("А: оригинал", "A: original"),
-                                                    tr("Б: выровненный, рекомендую", "B: warped, recommended")]
+                                                    tr("Б: выровненный (рекомендую)", "B: warped (recommended)")]
                 h["name"] = r["wav"].stem
                 h["variants"] = [dict(title=t, wav=str(v["wav"]), bpm=float(v["bpm"]), snapped=bool(v["snapped"]),
                                       offset=int(v["offset"]), start=float(v["start"]), dur=float(v["dur"]),
