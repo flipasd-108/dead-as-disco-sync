@@ -54,8 +54,8 @@ def fetch_wav(src: str, out_dir: Path) -> Path:
                 with yt_dlp.YoutubeDL(opts | extra) as ydl:
                     info = ydl.extract_info(src)
                     return Path(ydl.prepare_filename(info)).with_suffix(".wav")
-            except Exception as e:  # bot check, or no Firefox profile for the cookie attempt
-                if "not a bot" not in str(e) and "cookiesfrombrowser" not in extra:
+            except Exception as e:  # bot check or 403 on the media URL, or no Firefox profile for the cookie attempt
+                if not any(m in str(e) for m in ("not a bot", "403")) and "cookiesfrombrowser" not in extra:
                     raise
                 print(tr("YouTube: проверка на бота, пробую по-другому...", "YouTube bot check, trying another way..."))
                 time.sleep(3)
@@ -91,14 +91,18 @@ def fit_grid(beats: np.ndarray):
     return period, t0, idx
 
 
+def smooth_drift(resid: np.ndarray) -> np.ndarray:
+    # median over 9 beats: follows the tempo drift, drops the tracker's single wrong or extra beats
+    return np.median(np.lib.stride_tricks.sliding_window_view(np.pad(resid, 4, "edge"), 9), 1)
+
+
 def warp_to_grid(audio: np.ndarray, sr: int, beats: np.ndarray, idx: np.ndarray,
                  period: float, t0: float, target: float) -> np.ndarray:
     """Stretch the audio between beats so every beat lands on one constant grid of `target` seconds."""
     import pytsmod
     _, first = np.unique(idx, return_index=True)  # an extra beat shares its index: keep one
     beats, idx = beats[first], idx[first]
-    # follow the drummer's tempo, not the tracker's per-beat noise: median over 9 beats
-    drift = np.median(np.lib.stride_tricks.sliding_window_view(np.pad(beats - (t0 + idx * period), 4, "edge"), 9), 1)
+    drift = smooth_drift(beats - (t0 + idx * period))
     src, dst = t0 + idx * period + drift, t0 + idx * target
     ok = (src > 0.05) & (dst > 0.05) & (src < len(audio) / sr - 0.05)
     src, dst = src[ok], dst[ok]
@@ -136,33 +140,32 @@ def grid_t0(beats: np.ndarray, period: float) -> float:
     return float(np.median(beats - idx * period))
 
 
+GOOD_MS = 20  # players: under ~20 ms off the grid feels right
 CHECKPOINTS = ("final0", "final1", "final2")  # three independently trained Beat This! models vote
 
 
 def analyze(wav: Path, warp: bool = True, period: float | None = None):
-    """Beat grid of the file. With warp, an unsteady track is rewritten in place onto a constant tempo."""
+    """Beat grid of the file. With warp, an unsteady track also gets a "(sync)" copy warped onto one tempo."""
     from beat_this.inference import Audio2Beats
     audio, sr = sf.read(wav, dtype="float64")
     mono = audio.mean(1) if audio.ndim == 2 else audio
     tracks = [np.asarray(Audio2Beats(checkpoint_path=c, device="cpu", dbn=False)(mono, sr)[0]) for c in CHECKPOINTS]
-    beats = tracks[0]
-    if period is None:
-        period, t0, idx = fit_grid(beats)
-        bpm_votes = [60 / fit_grid(b)[0] for b in tracks]
-        period = 60 / float(np.median(bpm_votes))
-    else:  # second pass over a warped file: its tempo is known exactly
-        idx = np.round((beats - beats[0]) / period)
-        t0 = np.median(beats - idx * period)
-        bpm_votes = [60 / period]
-    jitter_ms = float(np.sqrt(np.mean((beats - (t0 + idx * period)) ** 2)) * 1000)
+    bpm_votes = [60 / fit_grid(b)[0] for b in tracks] if period is None else [60 / period]
+    period = 60 / float(np.median(bpm_votes))  # a warped file's tempo is known exactly: second pass passes it
+
+    def grid(b: np.ndarray):
+        idx = np.round((b - b[0]) / period) if len(bpm_votes) == 1 else fit_grid(b)[2]
+        return float(np.median(b - idx * period)), idx
+
+    # 90th percentile of the smoothed drift: a beatless intro or a few tracker slips don't trigger a warp.
+    # The cleanest model is the reference: one that jumps to double time in a section would fake a drift
+    drifts = [np.percentile(np.abs(smooth_drift(b - (t + i * period))), 90) for b in tracks for t, i in [grid(b)]]
+    beats = tracks[int(np.argmin(drifts))]
+    t0, idx = grid(beats)
+    jitter_ms = float(min(drifts) * 1000)
     bpm = 60 / period
     snapped = abs(bpm - round(bpm)) < 0.03  # produced tracks are usually exactly integer BPM
-    if warp and jitter_ms > 15 and not snapped:
-        target = 60 / round(bpm, 2)  # the game takes BPM with 2 decimals: make the file match it exactly
-        print(tr(f"Темп плавает (~{jitter_ms:.0f} мс), выравниваю трек на {num(round(bpm, 2), 2)}...",
-                 f"Tempo drifts (~{jitter_ms:.0f} ms), warping the track to {num(round(bpm, 2), 2)}..."))
-        sf.write(wav, warp_to_grid(audio, sr, beats, idx, period, t0, target), sr, subtype="PCM_16")
-        return analyze(wav, warp=False, period=target) | {"warped_from_ms": jitter_ms, "bpm_votes": bpm_votes}
+    fit_period, fit_t0 = period, t0
     if snapped:
         period = 60 / round(bpm)
     # offset: each model's grid, aligned around model 1 (wrap at period), plus the attacks vote. Models sit
@@ -175,9 +178,17 @@ def analyze(wav: Path, warp: bool = True, period: float | None = None):
     attacks = tr("атаки", "attacks")
     votes[attacks] = attack_t0(mono, sr, period, models)
     t0 = votes[attacks] if abs(votes[attacks] - models) <= 0.012 else models
-    return dict(bpm=60 / period, snapped=snapped, offset=round((t0 % period) * 1000), start=start_time(mono, sr),
-                dur=len(mono) / sr, jitter_ms=jitter_ms, bpm_votes=bpm_votes,
-                votes={k: round((v - t0) * 1000) for k, v in votes.items()})
+    res = dict(wav=wav, bpm=60 / period, snapped=snapped, offset=round((t0 % period) * 1000),
+               start=start_time(mono, sr), dur=len(mono) / sr, jitter_ms=jitter_ms, bpm_votes=bpm_votes,
+               votes={k: round((v - t0) * 1000) for k, v in votes.items()})
+    if warp and jitter_ms > GOOD_MS and not snapped:
+        target = 60 / round(bpm, 2)  # the game takes BPM with 2 decimals: make the file match it exactly
+        print(tr(f"Темп плавает (~{jitter_ms:.0f} мс), делаю выровненную копию на {num(round(bpm, 2), 2)}...",
+                 f"Tempo drifts (~{jitter_ms:.0f} ms), making a copy warped to {num(round(bpm, 2), 2)}..."))
+        sync = wav.with_name(wav.stem + " (sync).wav")
+        sf.write(sync, warp_to_grid(audio, sr, beats, idx, fit_period, fit_t0, target), sr, subtype="PCM_16")
+        res["sync"] = analyze(sync, warp=False, period=target)
+    return res
 
 
 def _selftest():
@@ -201,33 +212,44 @@ def main():
     wav = fetch_wav(sys.argv[1], out_dir)
     print(tr("Анализ", "Analyzing") + f": {wav.name} ...")
     r = analyze(wav)
+    if "sync" in r:
+        print(tr(f"\nТемп плавает: удары уходят от ровного темпа на ~{r['jitter_ms']:.0f} мс. Два варианта на выбор:",
+                 f"\nTempo drifts: beats stray ~{r['jitter_ms']:.0f} ms from a steady tempo. Two options:"))
+        show(r, tr("А: оригинал. Звук не тронут, но удары местами разъезжаются с сеткой",
+                   "A: original. Audio untouched, but beats drift off the grid in places"))
+        show(r["sync"], tr(f"Б: выровненный. Удары на сетке (~{r['sync']['jitter_ms']:.0f} мс), звук местами "
+                           "растянут на 1-2%. Рекомендую", f"B: warped. Beats on the grid (~{r['sync']['jitter_ms']:.0f} ms), "
+                           "audio stretched 1-2% in places. Recommended"))
+    else:
+        show(r, tr("Моя музыка -> вбить в игру", "My Music -> enter in the game"))
+    shown = r.get("sync", r)["wav"]
+    print(tr("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.",
+             "\nThe WAV is selected in Explorer: add it to the game and keep it in place."))
+    if sys.platform == "win32":
+        subprocess.Popen(["explorer", "/select,", str(shown)])
+    c = r.get("sync", r)  # cross-check the recommended file
+    models = list(c["votes"].values())[:-1]  # the attacks vote is blurry on real mixes: it informs, not alarms
+    spread = max(models) - min(models)
+    votes = ", ".join(f"{k} {v:+d}" for k, v in c["votes"].items())
+    bpms = " / ".join(num(b, 2) for b in r["bpm_votes"])
+    print(tr(f"\nСверка: темп по моделям {bpms}; смещение относительно итога: {votes} мс (разброс моделей {spread} мс)",
+             f"\nCross-check: BPM per model {bpms}; offset vs result: {votes} ms (model spread {spread} ms)"))
+    if spread > GOOD_MS:
+        print(tr("  Голоса заметно расходятся: если в игре удары мимо, попробуй смещение ± эти мс.",
+                 "  The votes disagree: if hits feel off in the game, try the offset +- these ms."))
+    if r.get("sync", {}).get("jitter_ms", 0) > GOOD_MS:
+        print(tr(f"\nВНИМАНИЕ: и в выровненном удары гуляют на ~{r['sync']['jitter_ms']:.0f} мс, проверь трек в игре.",
+                 f"\nWARNING: beats still wander ~{r['sync']['jitter_ms']:.0f} ms after warping, check it in the game."))
+
+
+def show(r: dict, title: str):
     bpm_txt = str(round(r["bpm"])) if r["snapped"] else num(r["bpm"], 2)
-    print(tr("\nФайл: ", "\nFile: ") + str(wav))
-    print(tr("\n  Моя музыка -> вбить в игру:", "\n  My Music -> enter in the game:"))
+    print(f"\n  {title}:")
+    print(tr("  Файл:                  ", "  File:               ") + r["wav"].name)
     print(tr("  Темп:                  ", "  BPM:                ") + bpm_txt)
     print(tr("  Смещение ритма (мс):   ", "  Beat Offset (ms):   ") + str(r["offset"]))
     print(tr("  Время начала (с):      ", "  Start Time (s):     ") + num(r["start"], 2))
     print(tr("  Время окончания (с):   ", "  End Time (s):       ") + num(r["dur"], 3))
-    print(tr("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.",
-             "\nThe WAV is selected in Explorer: add it to the game and keep it in place."))
-    if sys.platform == "win32":
-        subprocess.Popen(["explorer", "/select,", str(wav)])
-    spread = max(r["votes"].values()) - min(r["votes"].values())
-    votes = ", ".join(f"{k} {v:+d}" for k, v in r["votes"].items())
-    bpms = " / ".join(num(b, 2) for b in r["bpm_votes"])
-    print(tr(f"\nСверка: темп по моделям {bpms}; смещение относительно итога: {votes} мс (разброс {spread} мс)",
-             f"\nCross-check: BPM per model {bpms}; offset vs result: {votes} ms (spread {spread} ms)"))
-    if spread > 15:
-        print(tr("  Голоса заметно расходятся: если в игре удары мимо, попробуй смещение ± эти мс.",
-                 "  The votes disagree: if hits feel off in the game, try the offset +- these ms."))
-    if "warped_from_ms" in r:
-        print(tr(f"\nТрек выровнен под один темп: удары гуляли на ~{r['warped_from_ms']:.0f} мс, "
-                 f"теперь ~{r['jitter_ms']:.0f} мс. Звук чуть растянут/сжат местами, на слух не заметно.",
-                 f"\nTrack warped onto one tempo: beats wandered ~{r['warped_from_ms']:.0f} ms, "
-                 f"now ~{r['jitter_ms']:.0f} ms. Audio is stretched by 1-2% in places, inaudible."))
-    if r["jitter_ms"] > 15:
-        print(tr(f"\nВНИМАНИЕ: удары всё ещё гуляют на ~{r['jitter_ms']:.0f} мс, проверь трек в игре.",
-                 f"\nWARNING: beats still wander ~{r['jitter_ms']:.0f} ms, check the track in the game."))
 
 if __name__ == "__main__":
     main()
