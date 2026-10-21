@@ -40,7 +40,7 @@ GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "Im
 
 def game_analysed(songs: Path, ours: Path) -> list[dict]:
     """Songs this tool added (their source WAV sits in `ours`) that the game has since analysed with Auto-detect.
-    Our WAV starts on a beat and we write beatOffset 0, so whatever the game puts there is its own correction."""
+    Logged at start, to compare what the game's Auto-detect wrote with what we wrote."""
     found = []
     for meta in sorted(songs.glob("*/Meta.json")) if songs.is_dir() else []:
         try:
@@ -54,14 +54,6 @@ def game_analysed(songs: Path, ours: Path) -> list[dict]:
             period = 60000 / tempo
             found.append(dict(name=meta.parent.name, tempo=tempo, offset=(offset + period / 2) % period - period / 2))
     return found
-
-
-def game_offset(found: list[dict]) -> int | None:
-    """The game's correction when it is the same on every analysed song (3+ songs within 15 ms), else None."""
-    offs = sorted(f["offset"] for f in found)
-    if len(offs) < 3 or offs[-1] - offs[0] > 15:
-        return None
-    return round(offs[len(offs) // 2])
 
 
 def add_to_game(r: dict) -> Path | None:
@@ -80,13 +72,9 @@ def add_to_game(r: dict) -> Path | None:
         shutil.copyfile(r["wav"], audio)
     else:  # the game keeps another format: convert, the WAV already starts on a beat
         subprocess.run([FFMPEG, "-y", "-v", "error", "-i", str(r["wav"]), str(audio)], check=True)
-    beat_offset = r["offset"]
-    found = game_analysed(GAME_SONGS, r["wav"].parent)
-    correction = game_offset(found)
-    if correction is not None:  # the game shifts our songs by the same amount: write it, Auto-detect becomes optional
-        beat_offset = round((beat_offset + correction) % (60000 / r["bpm"]))
-        print(tr(f"Смещение как у игры: {beat_offset} мс (по {len(found)} песням после автоопределения)",
-                 f"Offset as the game sets it: {beat_offset} ms (from {len(found)} auto-detected songs)"))
+    # the game's Auto-detect is Beat This model 1 (its log loads a BeatThis plugin; on a real song it wrote 497 ms
+    # where model 1 sits 11 ms before our beat: 507.5 - 11). Writing model 1's grid makes Auto-detect unnecessary
+    beat_offset = round(next(iter(r["votes"].values())) % (60000 / r["bpm"]))
     meta = {
         "version": 1, "uniqueId": random.getrandbits(32), "songName": folder.name, "performedBy": [], "writtenBy": [],
         "seed": random.getrandbits(31), "tempo": round(r["bpm"], 2), "customTempoSections": [],
@@ -353,8 +341,7 @@ def _selftest():
                 "tempo": 120, "beatOffset": off, "originalAudioFilePath": (src / f"{i}.wav").as_posix(),
                 "analyseResult": {"bAnalyseSuccessful": done}}), encoding="utf-8")
         found = game_analysed(songs, ours)
-        assert [f["name"] for f in found] == ["0", "1", "2"] and game_offset(found) == 30, found
-        assert game_offset(found[:2]) is None and game_offset(found + [dict(offset=60)]) is None
+        assert [f["name"] for f in found] == ["0", "1", "2"] and round(found[0]["offset"]) == 31, found
     for raw, clean in (("Rick Astley - Never Gonna Give You Up (Official Music Video) [4K Remaster]",
                         "Rick Astley - Never Gonna Give You Up"),
                        ("Bee Gees - Stayin' Alive (Official Video)", "Bee Gees - Stayin' Alive"),
@@ -616,12 +603,6 @@ def gui(out_dir: Path, src: str = ""):
         if not GAME_SONGS.is_dir():
             status += tr(r". Обычно это %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs",
                          r". Usually %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs")
-        found = game_analysed(GAME_SONGS, out_dir)
-        correction = game_offset(found)
-        if correction is not None:
-            status += tr(f". Игра сдвигает наши песни на {correction} мс (по {len(found)} песням), новые получат "
-                         f"это смещение сразу", f". The game shifts our songs by {correction} ms ({len(found)} songs); "
-                         f"new ones get it right away")
         cv.itemconfigure(t_game, text=status[0].upper() + status[1:])
         relayout()
 
