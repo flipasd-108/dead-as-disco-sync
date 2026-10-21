@@ -21,6 +21,8 @@
 - смещение: голоса трёх моделей плюс голос по атакам ударов (точность 1 мс); если атаки согласны с моделями в пределах 12 мс, берутся атаки, иначе медиана моделей; в конце печатается сверка;
 - если темп плавает больше чем на 20 мс (живой барабанщик), выдаются два варианта: оригинал без изменений и выровненная копия `(sync)`, где звук между ударами чуть растянут/сжат (±1–2%) и все удары ложатся на ровную сетку; хватает обычного режима без расширенного редактора;
 - за образец для выравнивания берётся модель с самой чистой сеткой: если одна модель в каком-то куске перешла на удвоенный счёт, она не портит результат.
+- WAV подрезается так, чтобы начинаться ровно на доле (разработчики: игре нужен «BPM и трек, обрезанный так, что начинается на доле»): тишина до первой доли отрезается, а если там затакт — добавляется тишина до доли перед ним. Поэтому **смещение всегда 0, начало 0**, вбивать по сути нужно только темп;
+- для треков медленнее 120 подсказывается удвоенный темп (игра советует 120–200).
 
 Если YouTube просит подтвердить, что вы не бот, программа повторяет попытку и пробует вход из Firefox. Не помогло: войти в YouTube в Firefox, или в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export и положить `cookies.txt` рядом с батником, или скачать песню и перетащить файл.
 
@@ -36,7 +38,7 @@ YouTube link or audio file → WAV plus the **My Music** settings for Dead as Di
 
 The first run installs uv, Python, libraries and models (~1 GB). Output is in English unless Windows is set to Russian.
 
-How it works: three independently trained Beat This! models vote on beats and BPM; a least-squares constant grid gives BPM to 0.01; the offset is the attacks vote (1 ms resolution) when it agrees with the models within 12 ms, otherwise the models' median. If the tempo drifts more than 20 ms (live drummer), you get two options: the untouched original and a `(sync)` copy time-warped by 1–2% between beats onto one constant tempo, so a single BPM fits the whole song.
+How it works: the WAV is trimmed (or padded) to start exactly on a beat, so Beat Offset is always 0 and Start Time 0, as the developers ask; three independently trained Beat This! models vote on beats and BPM; a least-squares constant grid gives BPM to 0.01; the offset is the attacks vote (1 ms resolution) when it agrees with the models within 12 ms, otherwise the models' median. If the tempo drifts more than 20 ms (live drummer), you get two options: the untouched original and a `(sync)` copy time-warped by 1–2% between beats onto one constant tempo, so a single BPM fits the whole song.
 
 If YouTube asks to confirm you're not a bot: sign in to YouTube in Firefox, or export `cookies.txt` with the "Get cookies.txt LOCALLY" extension and put it next to the .bat, or download the song yourself and drop the file.
 

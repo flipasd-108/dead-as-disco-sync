@@ -140,6 +140,16 @@ def grid_t0(beats: np.ndarray, period: float) -> float:
     return float(np.median(beats - idx * period))
 
 
+def align_to_beat(audio: np.ndarray, sr: int, lead: float, period: float, first_sound: float):
+    """Cut or pad the start so the file begins exactly on a beat (the developers: "the song is cut so that
+    it starts on a beat"), which makes Beat Offset 0. Returns the audio and seconds cut (>0) or padded (<0)."""
+    n = round(lead * sr)
+    if first_sound >= lead - 0.05:  # silence before the first beat, or only its own attack: cut it
+        return audio[n:], n / sr
+    pad = round((period - lead) * sr)  # pickup notes before it: pad silence up to the beat before instead
+    return np.concatenate([np.zeros((pad,) + audio.shape[1:]), audio]), -pad / sr
+
+
 GOOD_MS = 20  # players: under ~20 ms off the grid feels right
 CHECKPOINTS = ("final0", "final1", "final2")  # three independently trained Beat This! models vote
 
@@ -188,6 +198,9 @@ def analyze(wav: Path, warp: bool = True, period: float | None = None):
         sync = wav.with_name(wav.stem + " (sync).wav")
         sf.write(sync, warp_to_grid(audio, sr, beats, idx, fit_period, fit_t0, target), sr, subtype="PCM_16")
         res["sync"] = analyze(sync, warp=False, period=target)
+    aligned, trim = align_to_beat(audio, sr, t0 % period, period, res["start"])
+    sf.write(wav, aligned, sr, subtype="PCM_16")
+    res |= dict(offset=0, start=0.0, dur=len(aligned) / sr, trim=trim)
     return res
 
 
@@ -199,6 +212,13 @@ def _selftest():
     beats = np.round(beats / 0.02) * 0.02 + rng.normal(0, 0.003, len(beats))  # 50 fps frames + noise
     p, t, _ = fit_grid(beats)
     assert abs(60 / p - 127.6) < 0.01 and abs(t - t0) < 0.003, (60 / p, t)
+    # first beat at 0.7 s after silence: cut; a pickup note at 0.2 s before it: pad up to the beat before (2 s beats)
+    x = np.zeros(5000); x[700] = 1
+    a, trim = align_to_beat(x, 1000, 0.7, 2.0, 0.68)
+    assert a[0] == 1 and trim == 0.7, trim
+    x[200] = 1
+    a, trim = align_to_beat(x, 1000, 0.7, 2.0, 0.2)
+    assert a[2000] == 1 and a[1500] == 1 and trim == -1.3, trim
     print("selftest ok")
 
 
@@ -250,6 +270,15 @@ def show(r: dict, title: str):
     print(tr("  Смещение ритма (мс):   ", "  Beat Offset (ms):   ") + str(r["offset"]))
     print(tr("  Время начала (с):      ", "  Start Time (s):     ") + num(r["start"], 2))
     print(tr("  Время окончания (с):   ", "  End Time (s):       ") + num(r["dur"], 3))
+    if r["trim"] > 0:
+        print(tr(f"  Подрезка: отрезал {num(r['trim'], 3)} с до первой доли, трек начинается на доле",
+                 f"  Trim: cut {num(r['trim'], 3)} s before the first beat, the track starts on the beat"))
+    else:
+        print(tr(f"  Подрезка: добавил {num(-r['trim'], 3)} с тишины в начало (там затакт), трек начинается на доле",
+                 f"  Trim: added {num(-r['trim'], 3)} s of silence (pickup notes), the track starts on the beat"))
+    if r["bpm"] < 120:
+        print(tr(f"  Игра советует темп 120–200: можно вбить {num(2 * r['bpm'], 2)}, смещение то же",
+                 f"  The game suggests 120-200 BPM: you can enter {num(2 * r['bpm'], 2)}, same offset"))
 
 if __name__ == "__main__":
     main()
