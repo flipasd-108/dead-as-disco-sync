@@ -1,26 +1,45 @@
 # Dead as Disco Sync
 
-Ссылка на YouTube или аудиофайл → WAV и настройки для «Моя музыка» в Dead as Disco: **Темп**, **Смещение ритма (мс)**, **Время начала (с)**.
+[English below](#english)
+
+Ссылка на YouTube или аудиофайл → WAV и настройки для «Моя музыка» в Dead as Disco: **Темп**, **Смещение ритма (мс)**, **Время начала (с)**, **Время окончания (с)**. Проверено в игре.
 
 ## Запуск (Windows)
 
-1. Скачать один файл: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** и положить в любую папку.
+1. Скачать один файл: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** и положить в отдельную папку.
 2. Перетащить на него аудиофайл, или запустить и вставить ссылку на YouTube / путь к файлу. Windows может спросить «Запустить?» — да.
-3. Добавить в игру WAV из папки `songs\` рядом с батником и вбить три числа.
+3. Добавить в игру WAV из папки `songs\` рядом с батником (Проводник откроется с ним сам) и вбить числа.
 
-Первый запуск сам ставит [uv](https://github.com/astral-sh/uv), Python и зависимости (~900 МБ, несколько минут). Дальше ~10 с на песню.
+Первый запуск сам ставит [uv](https://github.com/astral-sh/uv), Python, библиотеки и модели (~1 ГБ, несколько минут). Дальше 30 с – 2 мин на песню.
 
-**Грузить в игру именно этот WAV**: смещение измерено на нём, MP3 того же трека может быть сдвинут на десятки мс.
+**Грузить в игру именно этот WAV и не перемещать его**: смещение измерено на нём, MP3 того же трека может быть сдвинут на десятки мс.
 
 ## Как считает
 
-- доли находят три независимо обученные модели [Beat This!](https://github.com/CPJKU/beat_this) (CPJKU, 2024), темп берётся медианой их голосов, в конце печатается сверка;
-- через все доли методом наименьших квадратов проводится ровная сетка: темп до сотых, без округления до целого (почти целый темп ставится целым);
-- смещение: голоса трёх моделей плюс голос по атакам ударов (точность 1 мс); если атаки согласны с моделями в пределах 12 мс, берутся атаки, иначе медиана моделей;
-- если темп плавает (живой барабанщик), трек выравнивается под один темп: звук между ударами чуть растягивается/сжимается (±1–2%), и все удары ложатся на ровную сетку; хватает обычного режима без расширенного редактора.
+- доли находят три независимо обученные модели [Beat This!](https://github.com/CPJKU/beat_this) (CPJKU, 2024), темп — медиана их голосов;
+- через все доли методом наименьших квадратов проводится ровная сетка: темп до сотых (почти целый ставится целым);
+- смещение: голоса трёх моделей плюс голос по атакам ударов (точность 1 мс); если атаки согласны с моделями в пределах 12 мс, берутся атаки, иначе медиана моделей; в конце печатается сверка;
+- если темп плавает (живой барабанщик), трек выравнивается под один темп: звук между ударами чуть растягивается/сжимается (±1–2%), все удары ложатся на ровную сетку, хватает обычного режима без расширенного редактора.
 
-Без батника: `uv run disco_sync.py "<ссылка или файл>" [папка]`.
+Если YouTube просит подтвердить, что вы не бот, программа повторяет попытку и пробует вход из Firefox. Не помогло: войти в YouTube в Firefox, или в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export и положить `cookies.txt` рядом с батником, или скачать песню и перетащить файл.
 
-Если YouTube просит подтвердить, что вы не бот, программа повторяет попытку и пробует вход из Firefox. Не помогло: войти в YouTube в Firefox, или в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export и положить `cookies.txt` рядом с батником, или просто скачать песню и перетащить файл.
+Подходят и ссылки с других сайтов, которые знает [yt-dlp](https://github.com/yt-dlp/yt-dlp) (SoundCloud, Bandcamp, VK...). Spotify и Яндекс Музыка — нет.
 
-Идея и формат полей: [Aoshi2020/DeadAsDisco-SyncTool](https://github.com/Aoshi2020/DeadAsDisco-SyncTool).
+## English
+
+YouTube link or audio file → WAV plus the **My Music** settings for Dead as Disco: **BPM**, **Beat Offset (ms)**, **Start Time (s)**, **End Time (s)**. Tested in game.
+
+1. Download one file: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** into its own folder.
+2. Drop an audio file onto it, or run it and paste a YouTube link / file path.
+3. Add the WAV from `songs\` (Explorer opens with it selected) to the game and enter the numbers. Keep the WAV where it is.
+
+The first run installs uv, Python, libraries and models (~1 GB). Output is in English unless Windows is set to Russian.
+
+How it works: three independently trained Beat This! models vote on beats and BPM; a least-squares constant grid gives BPM to 0.01; the offset is the attacks vote (1 ms resolution) when it agrees with the models within 12 ms, otherwise the models' median. Live recordings with drifting tempo are time-warped by 1–2% between beats onto one constant tempo, so a single BPM fits the whole song.
+
+If YouTube asks to confirm you're not a bot: sign in to YouTube in Firefox, or export `cookies.txt` with the "Get cookies.txt LOCALLY" extension and put it next to the .bat, or download the song yourself and drop the file.
+
+---
+
+Без батника / without the .bat: `uv run disco_sync.py "<url or file>" [out_dir]`. Licence: MIT.
+Идея и формат полей / idea and field format: [Aoshi2020/DeadAsDisco-SyncTool](https://github.com/Aoshi2020/DeadAsDisco-SyncTool).

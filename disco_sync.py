@@ -1,13 +1,18 @@
 # /// script
-# requires-python = ">=3.10,<3.13"
-# dependencies = ["beat-this", "soundfile", "yt-dlp[default,deno]", "imageio-ffmpeg", "pytsmod"]
+# requires-python = ">=3.11,<3.12"
+# # pinned to the tested set; yt-dlp stays fresh because YouTube keeps breaking old versions
+# dependencies = [
+#   "beat-this==1.1.0", "torch==2.14.1", "torchaudio==2.11.0", "einops==0.8.2", "rotary-embedding-torch==0.9.1",
+#   "soxr==1.1.0", "numpy==2.4.6", "scipy==1.17.1", "soundfile==0.14.0", "imageio-ffmpeg==0.6.0",
+#   "pytsmod==0.3.8", "yt-dlp[default,deno]",
+# ]
 # ///
 """Dead as Disco sync: YouTube link or audio file -> WAV + BPM / Beat Offset / Start Time.
 
 Run:  uv run disco_sync.py "https://youtu.be/..."   (or a local file path)
 Import the WAV it writes into the game: the offset is measured on exactly that file.
 """
-import subprocess, sys, time
+import locale, subprocess, sys, time
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +20,16 @@ import soundfile as sf
 import imageio_ffmpeg
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
+RU = (locale.getlocale()[0] or "").lower().startswith("ru")  # the game's language follows the system's
+
+
+def tr(ru: str, en: str) -> str:
+    return ru if RU else en
+
+
+def num(x: float, digits: int) -> str:
+    s = f"{x:.{digits}f}"
+    return s.replace(".", ",") if RU else s  # the Russian UI uses a decimal comma
 
 
 def fetch_wav(src: str, out_dir: Path) -> Path:
@@ -42,13 +57,18 @@ def fetch_wav(src: str, out_dir: Path) -> Path:
             except Exception as e:  # bot check, or no Firefox profile for the cookie attempt
                 if "not a bot" not in str(e) and "cookiesfrombrowser" not in extra:
                     raise
-                print("YouTube: проверка на бота, пробую по-другому...")
+                print(tr("YouTube: проверка на бота, пробую по-другому...", "YouTube bot check, trying another way..."))
                 time.sleep(3)
-        sys.exit("\nYouTube не пускает (проверка на бота). Варианты:\n"
-                 "  1) войти в YouTube в Firefox и запустить снова: программа возьмёт вход оттуда;\n"
-                 "  2) в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export\n"
-                 f"     и положить файл cookies.txt сюда: {cookies_txt.parent}\n"
-                 "  3) скачать песню любым способом и перетащить файл на DeadAsDiscoSync.bat.")
+        sys.exit(tr("\nYouTube не пускает (проверка на бота). Варианты:\n"
+                    "  1) войти в YouTube в Firefox и запустить снова: программа возьмёт вход оттуда;\n"
+                    "  2) в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export\n"
+                    f"     и положить файл cookies.txt сюда: {cookies_txt.parent}\n"
+                    "  3) скачать песню любым способом и перетащить файл на DeadAsDiscoSync.bat.",
+                    "\nYouTube blocks the download (bot check). Options:\n"
+                    "  1) sign in to YouTube in Firefox and run again: the session is picked up from there;\n"
+                    "  2) in Chrome install the 'Get cookies.txt LOCALLY' extension, press Export on youtube.com\n"
+                    f"     and put cookies.txt here: {cookies_txt.parent}\n"
+                    "  3) get the song any other way and drop the file onto DeadAsDiscoSync.bat."))
     src_path = Path(src)
     wav = out_dir / (src_path.stem + ".wav")
     if src_path.resolve() != wav.resolve():
@@ -139,7 +159,8 @@ def analyze(wav: Path, warp: bool = True, period: float | None = None):
     snapped = abs(bpm - round(bpm)) < 0.03  # produced tracks are usually exactly integer BPM
     if warp and jitter_ms > 15 and not snapped:
         target = 60 / round(bpm, 2)  # the game takes BPM with 2 decimals: make the file match it exactly
-        print(f"Темп плавает (~{jitter_ms:.0f} мс), выравниваю трек на {ru(round(bpm, 2), 2)}...")
+        print(tr(f"Темп плавает (~{jitter_ms:.0f} мс), выравниваю трек на {num(round(bpm, 2), 2)}...",
+                 f"Tempo drifts (~{jitter_ms:.0f} ms), warping the track to {num(round(bpm, 2), 2)}..."))
         sf.write(wav, warp_to_grid(audio, sr, beats, idx, period, t0, target), sr, subtype="PCM_16")
         return analyze(wav, warp=False, period=target) | {"warped_from_ms": jitter_ms, "bpm_votes": bpm_votes}
     if snapped:
@@ -147,19 +168,16 @@ def analyze(wav: Path, warp: bool = True, period: float | None = None):
     # offset: each model's grid, aligned around model 1 (wrap at period), plus the attacks vote. Models sit
     # ~5 ms late on clean clicks (20 ms frames), so the attacks win when they agree within 12 ms;
     # a far attack peak on a dense mix is another instrument, then the models' median wins
-    votes = {f"модель {i + 1}": grid_t0(b, period) for i, b in enumerate(tracks)}
-    ref = votes["модель 1"]
+    votes = {f"{tr('модель', 'model')} {i + 1}": grid_t0(b, period) for i, b in enumerate(tracks)}
+    ref = next(iter(votes.values()))
     votes = {k: ref + (v - ref + period / 2) % period - period / 2 for k, v in votes.items()}
     models = float(np.median(list(votes.values())))
-    votes["атаки"] = attack_t0(mono, sr, period, models)
-    t0 = votes["атаки"] if abs(votes["атаки"] - models) <= 0.012 else models
+    attacks = tr("атаки", "attacks")
+    votes[attacks] = attack_t0(mono, sr, period, models)
+    t0 = votes[attacks] if abs(votes[attacks] - models) <= 0.012 else models
     return dict(bpm=60 / period, snapped=snapped, offset=round((t0 % period) * 1000), start=start_time(mono, sr),
                 dur=len(mono) / sr, jitter_ms=jitter_ms, bpm_votes=bpm_votes,
                 votes={k: round((v - t0) * 1000) for k, v in votes.items()})
-
-
-def ru(x: float, digits: int) -> str:
-    return f"{x:.{digits}f}".replace(".", ",")  # the game's Russian UI uses a decimal comma
 
 
 def _selftest():
@@ -181,29 +199,35 @@ def main():
     out_dir = Path(sys.argv[2] if len(sys.argv) > 2 else ".").resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     wav = fetch_wav(sys.argv[1], out_dir)
-    print(f"Анализ: {wav.name} ...")
+    print(tr("Анализ", "Analyzing") + f": {wav.name} ...")
     r = analyze(wav)
-    bpm_txt = str(round(r["bpm"])) if r["snapped"] else ru(r["bpm"], 2)
-    print(f"\nФайл: {wav}")
-    print("\n  Моя музыка -> вбить в игру:")
-    print(f"  Темп:                  {bpm_txt}")
-    print(f"  Смещение ритма (мс):   {r['offset']}")
-    print(f"  Время начала (с):      {ru(r['start'], 2)}")
-    print(f"  Время окончания (с):   {ru(r['dur'], 3)}")
-    print("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.")
+    bpm_txt = str(round(r["bpm"])) if r["snapped"] else num(r["bpm"], 2)
+    print(tr("\nФайл: ", "\nFile: ") + str(wav))
+    print(tr("\n  Моя музыка -> вбить в игру:", "\n  My Music -> enter in the game:"))
+    print(tr("  Темп:                  ", "  BPM:                ") + bpm_txt)
+    print(tr("  Смещение ритма (мс):   ", "  Beat Offset (ms):   ") + str(r["offset"]))
+    print(tr("  Время начала (с):      ", "  Start Time (s):     ") + num(r["start"], 2))
+    print(tr("  Время окончания (с):   ", "  End Time (s):       ") + num(r["dur"], 3))
+    print(tr("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.",
+             "\nThe WAV is selected in Explorer: add it to the game and keep it in place."))
     if sys.platform == "win32":
         subprocess.Popen(["explorer", "/select,", str(wav)])
     spread = max(r["votes"].values()) - min(r["votes"].values())
-    print(f"\nСверка: темп по моделям {' / '.join(ru(b, 2) for b in r['bpm_votes'])}; смещение относительно итога: "
-          + ", ".join(f"{k} {v:+d}" for k, v in r["votes"].items()) + f" мс (разброс {spread} мс)")
+    votes = ", ".join(f"{k} {v:+d}" for k, v in r["votes"].items())
+    bpms = " / ".join(num(b, 2) for b in r["bpm_votes"])
+    print(tr(f"\nСверка: темп по моделям {bpms}; смещение относительно итога: {votes} мс (разброс {spread} мс)",
+             f"\nCross-check: BPM per model {bpms}; offset vs result: {votes} ms (spread {spread} ms)"))
     if spread > 15:
-        print("  Голоса заметно расходятся: если в игре удары мимо, попробуй смещение ± эти мс.")
+        print(tr("  Голоса заметно расходятся: если в игре удары мимо, попробуй смещение ± эти мс.",
+                 "  The votes disagree: if hits feel off in the game, try the offset +- these ms."))
     if "warped_from_ms" in r:
-        print(f"\nТрек выровнен под один темп: удары гуляли на ~{r['warped_from_ms']:.0f} мс, "
-              f"теперь ~{r['jitter_ms']:.0f} мс. Звук чуть растянут/сжат местами, на слух не заметно.")
+        print(tr(f"\nТрек выровнен под один темп: удары гуляли на ~{r['warped_from_ms']:.0f} мс, "
+                 f"теперь ~{r['jitter_ms']:.0f} мс. Звук чуть растянут/сжат местами, на слух не заметно.",
+                 f"\nTrack warped onto one tempo: beats wandered ~{r['warped_from_ms']:.0f} ms, "
+                 f"now ~{r['jitter_ms']:.0f} ms. Audio is stretched by 1-2% in places, inaudible."))
     if r["jitter_ms"] > 15:
-        print(f"\nВНИМАНИЕ: удары всё ещё гуляют на ~{r['jitter_ms']:.0f} мс, проверь трек в игре.")
-
+        print(tr(f"\nВНИМАНИЕ: удары всё ещё гуляют на ~{r['jitter_ms']:.0f} мс, проверь трек в игре.",
+                 f"\nWARNING: beats still wander ~{r['jitter_ms']:.0f} ms, check the track in the game."))
 
 if __name__ == "__main__":
     main()
