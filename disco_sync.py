@@ -24,17 +24,20 @@ import imageio_ffmpeg
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 RU = (locale.getlocale()[0] or "").lower().startswith("ru")  # the game's language follows the system's
-AUTO_HINT_RU = ("Дальше в игре открой песню и нажми «Автоматическое определение»: трек уже начинается на доле, и на нём "
-                "игра сама точно ставит темп и смещение. Числа выше нужны, только если она промахнулась.")
-AUTO_HINT_EN = ("Then open the song in the game and press Auto-detect: the track already starts on a beat, so the game's "
-                "own detection sets the tempo and offset right. The numbers above are only for when it misses.")
+AUTO_HINT_RU = ("Темп и смещение записаны такие же, какие поставило бы «Автоматическое определение» игры: нажимать его "
+                "не нужно.")
+AUTO_HINT_EN = "Tempo and offset are written as the game's own Auto-detect would set them: no need to press it."
+MANUAL_HINT_RU = ("Добавив WAV в игру, нажми «Автоматическое определение»: трек уже начинается на доле, и игра сама точно "
+                  "поставит темп и смещение. Числа выше нужны, только если она промахнулась.")
+MANUAL_HINT_EN = ("After adding the WAV to the game, press Auto-detect: the track already starts on a beat, so the game sets "
+                  "tempo and offset right. The numbers above are only for when it misses.")
 # the game's own import takes these 8; the tool also reads opus and video and always hands the game a WAV
 MEDIA_TYPES = "*.wav *.mp3 *.ogg *.flac *.aiff *.m4a *.wma *.aac *.opus *.mp4 *.mkv *.webm *.mov"
 GUI_HELP_RU = ("Файл можно и перетащить в окно. Файлы: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC, как в самой игре, а ещё OPUS и видео MP4, MKV, WEBM, "
-               "MOV. Готовая песня появится в «Моей музыке» после перезапуска игры: открой её и нажми «Автоматическое "
-               "определение».")
+               "MOV. Готовая песня появится в «Моей музыке» после перезапуска игры, уже с темпом и смещением: «Автоматическое "
+               "определение» нажимать не нужно.")
 GUI_HELP_EN = ("You can also drop a file onto the window. Files: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC, same as the game, plus OPUS and MP4, MKV, WEBM, MOV "
-               "video. The song shows up in My Music after a game restart: open it and press Auto-detect.")
+               "video. The song shows up in My Music after a game restart, tempo and offset already set: no need for Auto-detect.")
 GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
 
 
@@ -305,8 +308,8 @@ def analyze(wav: Path, warp: bool = True, period: float | None = None):
         res["sync"] = analyze(sync, warp=False, period=target)
     aligned, trim = align_to_beat(audio, sr, t0 % period, period, res["start"])
     sf.write(wav, aligned, sr, subtype="PCM_16")
-    # the game's Auto-detect is Beat This model 1 with a grid fit (checked on two real songs: 497 vs 496.5 ms,
-    # 2 vs 1.9 ms). Run it on the finished file, as the game would, and hand the game that offset
+    # the game's Auto-detect is Beat This model 1 with a grid fit: on three real songs it matched within 0.5 ms and
+    # 0.0006 BPM. Run it on the finished file, as the game would, and hand the game that offset
     game = np.asarray(beat_model(CHECKPOINTS[0])(aligned.mean(1) if aligned.ndim == 2 else aligned, sr)[0])
     game_offset = round(grid_t0(game, period) % period * 1000) if len(game) >= 8 else 0
     res |= dict(offset=0, start=0.0, dur=len(aligned) / sr, trim=trim, game_offset=game_offset)
@@ -967,7 +970,7 @@ def run(src: str, out_dir: Path, reveal_wav: bool = True):
         shown = r.get("sync", r)["wav"]
         print(tr("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.",
                  "\nThe WAV is selected in Explorer: add it to the game and keep it in place."))
-        print(tr(AUTO_HINT_RU, AUTO_HINT_EN))
+        print(tr(MANUAL_HINT_RU, MANUAL_HINT_EN))
         if reveal_wav and sys.platform == "win32":  # the window has its own "Show WAV" button
             subprocess.Popen(["explorer", "/select,", str(shown)])
     c = r.get("sync", r)  # cross-check the recommended file

@@ -23,7 +23,7 @@ The window follows the Windows language; on a non-Russian Windows it's in Englis
 2. Run it. The first run installs [uv](https://github.com/astral-sh/uv), Python, libraries and models: about 1 GB, a few minutes. Keep the black console window open meanwhile.
 3. In the window check step 1, the My Music folder in the game's saves. It's usually found automatically; otherwise press Pick.
 4. Paste a link or pick a file and press Start. You can add more links while one is analysed: they wait in a queue. You can also drop a file onto the window or onto DeadAsDiscoSync.bat.
-5. Restart the game, open the song in My Music and press **Auto-detect**. The track already starts on a beat, so the game sets tempo and offset right by itself.
+5. Restart the game: the song is in My Music with its tempo and offset already set. No need to press Auto-detect: the tool writes the same numbers it would.
 
 YouTube titles lose tails like "(Official Video)" and "[4K]". Finished songs collect in a list. The buttons above it open the song's folder in the game, show its WAV in Explorer and delete the song from the list, the game and the disk after a confirmation.
 
@@ -47,7 +47,7 @@ DeadAsDiscoSync.bat is the only download; it installs the rest. If you used a ve
 
 **The song isn't in the game.** Restart the game: Reload Directory doesn't pick up new songs. If it's still missing, check step 1 in the window: the folder must be found and not empty. Last resort: add the WAV from the `songs` folder to the game by hand (the Show WAV button). It's trimmed to the beat, the source MP3 isn't.
 
-**Hits land off the beat.** If Auto-detect misses, the tempo is in the tool's song list; enter it by hand. If a song has two versions, `(sync)` plays steadier: the drifting tempo of live drums is evened out in it.
+**Hits land off the beat.** Press Auto-detect in the game, or enter the tempo from the tool's song list by hand. If a song has two versions, `(sync)` plays steadier: the drifting tempo of live drums is evened out in it.
 
 **YouTube asks to confirm you're not a bot.** The tool retries and tries your Firefox YouTube sign-in. If that fails:
 
@@ -82,7 +82,7 @@ The developers said in an [80.lv interview](https://80.lv/articles/interview-how
 - The first beat is placed by the models' votes plus a vote from drum attacks: the attacks win when they agree with the models within 12 ms, otherwise the models' median does.
 - The WAV is cut to that beat, or padded with silence back to the previous beat when there are pickup notes, so Beat Offset and Start Time are always 0.
 - If the tempo drifts more than 20 ms (a live drummer), you get two versions: the original and a `(sync)` copy stretched or squeezed by 1–2% between beats so the whole song runs at one tempo. Both go into the game.
-- After Auto-detect the game sets its own offset on a song. When three or more of our songs got the same one (within 15 ms), the tool writes it into new songs right away, so Auto-detect becomes optional. Step 1 in the window says so.
+- The game's Auto-detect is the same Beat This model 1 with a constant grid (the game's log loads a BeatThis plugin). On three songs the game's tempo and offset matched it within 0.0006 BPM and 0.5 ms. So the tool runs that model on the finished file and writes its tempo and offset into the game: the same result as pressing Auto-detect.
 - A song goes into the game the way the game's own import puts it: a folder with an `Audio` file and `Meta.json` in `%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`. Other songs are never touched.
 
 ## For developers
