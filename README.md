@@ -8,7 +8,7 @@
 
 1. Скачать один файл: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** и положить в отдельную папку.
 2. Запустить его: откроется окно. Вставить ссылку или выбрать файл (аудио или видео) и нажать «Старт». Готовые песни копятся в списке, двойной щелчок по песне открывает её папку. Можно и просто перетащить файл на батник. Windows может спросить «Запустить?», ответить «да».
-3. Песня **сама добавляется в «Мою музыку»**, если в игре уже есть хоть одна песня. Папку игры программа находит сама, её можно указать и вручную. Потом перезапустить игру: Reload Directory новые песни не видит. Если песня не появилась, добавить WAV из папки `songs\`.
+3. Песня **сама добавляется в «Мою музыку»**, если в игре уже есть хоть одна песня. Папку с песнями в сохранениях игры (`%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`) программа находит сама, её можно указать и вручную. Потом перезапустить игру: Reload Directory новые песни не видит. Если песня не появилась, добавить WAV из папки `songs\`.
 4. В игре открыть песню и нажать **«Автоматическое определение»**. Трек уже начинается на доле, и игра сама ставит темп и смещение. Числа из программы нужны, только если автоопределение промахнулось.
 
 Первый запуск сам ставит [uv](https://github.com/astral-sh/uv), Python, библиотеки и модели (~1 ГБ, несколько минут). Дальше 30 с – 2 мин на песню.
@@ -35,7 +35,7 @@ YouTube link or audio file → WAV plus the **My Music** settings for Dead as Di
 
 1. Download one file: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** into its own folder.
 2. Run it: a window opens. Paste a link or pick a file (audio or video) and press Start. Finished songs pile up in a list; double-click one to open its folder. Dropping a file onto the .bat works too.
-3. The song is **added to My Music automatically** if the game already has at least one song. The game folder is found automatically, or you can pick it. Restart the game: Reload Directory doesn't pick up new songs. If the song isn't there, add the WAV from `songs\`.
+3. The song is **added to My Music automatically** if the game already has at least one song. The songs folder in the game's saves (`%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`) is found automatically, or you can pick it. Restart the game: Reload Directory doesn't pick up new songs. If the song isn't there, add the WAV from `songs\`.
 4. In the game open the song and press **Auto-detect**. The track already starts on a beat, so the game sets tempo and offset itself. The numbers the tool prints are only for when auto-detect misses.
 
 The first run installs uv, Python, libraries and models (~1 GB). Output is in English unless Windows is set to Russian.

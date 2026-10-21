@@ -26,12 +26,10 @@ AUTO_HINT_RU = ("Дальше в игре открой песню и нажми 
 AUTO_HINT_EN = ("Then open the song in the game and press Auto-detect: the track already starts on a beat, so the game's "
                 "own detection sets the tempo and offset right. The numbers above are only for when it misses.")
 MEDIA_TYPES = "*.mp3 *.wav *.flac *.ogg *.m4a *.opus *.aac *.wma *.aiff *.mp4 *.mkv *.webm *.mov"
-GUI_HELP_RU = ("Вставь ссылку на YouTube, SoundCloud или VK или выбери аудио- или видеофайл и нажми «Старт». "
-               "Готовая песня появится в «Моей музыке» после перезапуска игры: открой её и нажми «Автоматическое "
-               "определение». Двойной щелчок по песне открывает её папку.")
-GUI_HELP_EN = ("Paste a YouTube, SoundCloud or VK link or pick an audio or video file and press Start. "
-               "The song shows up in My Music after a game restart: open it and press Auto-detect. "
-               "Double-click a song to open its folder.")
+GUI_HELP_RU = ("Готовая песня появится в «Моей музыке» после перезапуска игры: открой её и нажми «Автоматическое "
+               "определение». Двойной щелчок по песне в списке открывает её папку.")
+GUI_HELP_EN = ("The song shows up in My Music after a game restart: open it and press Auto-detect. "
+               "Double-click a song in the list to open its folder.")
 GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
 
 
@@ -295,7 +293,7 @@ def game_status(d: Path) -> str:
         return tr("не найдена, укажи вручную", "not found, pick it")
     n = sum(1 for f in d.glob("*/Audio*") if f.is_file())
     if not n:  # add_to_game copies the audio format from a song the game imported itself
-        return tr("пустая: добавь в игре одну песню сама, потом программа сможет добавлять",
+        return tr("пустая: сначала добавь одну песню через игру, потом программа сможет добавлять",
                   "empty: import one song in the game first, then the tool can add songs")
     return tr(f"найдена, песен: {n}", f"found, {n} songs")
 
@@ -338,8 +336,23 @@ def gui(out_dir: Path, src: str = ""):
         root.after(50, lambda: ctypes.windll.dwmapi.DwmSetWindowAttribute(
             ctypes.windll.user32.GetParent(root.winfo_id()), 20, ctypes.byref(ctypes.c_int(1)), 4))
 
+    # step 1: where the game keeps My Music, step 2: the song
+    ttk.Label(root, text=tr("1. Папка «Моей музыки» в сохранениях игры", "1. My Music folder in the game's saves")
+              ).pack(anchor="w", padx=12, pady=(12, 0))
+    gbox = ttk.Frame(root)
+    gbox.pack(fill="x", padx=12, pady=(4, 0))
+    game_path = ttk.Entry(gbox, state="readonly")  # readonly: the whole path is visible and copyable
+    game_path.pack(side="left", fill="x", expand=True)
+    game_btn = ttk.Button(gbox, text=tr("Указать", "Pick"))
+    game_btn.pack(side="left", padx=(8, 0))
+    game_lbl = ttk.Label(root, foreground="gray")
+    game_lbl.pack(anchor="w", padx=12, pady=(4, 0))
+
+    ttk.Label(root, text=tr("2. Ссылка на YouTube, SoundCloud, VK или аудио- или видеофайл",
+                            "2. A YouTube, SoundCloud or VK link, or an audio or video file")
+              ).pack(anchor="w", padx=12, pady=(16, 0))
     top = ttk.Frame(root)
-    top.pack(fill="x", padx=12, pady=(12, 0))
+    top.pack(fill="x", padx=12, pady=(4, 0))
     entry = ttk.Entry(top)
     entry.pack(side="left", fill="x", expand=True)
     if src:
@@ -356,30 +369,35 @@ def gui(out_dir: Path, src: str = ""):
     start = ttk.Button(top, text=tr("Старт", "Start"), style="Accent.TButton", command=lambda: go())
     start.pack(side="left", padx=(8, 0))
     ttk.Label(root, text=GUI_HELP_RU if RU else GUI_HELP_EN, foreground="gray", wraplength=790, justify="left"
-              ).pack(fill="x", padx=12, pady=(6, 0))
-
-    bar = ttk.Frame(root)
-    bar.pack(side="bottom", fill="x", padx=12, pady=12)
-    game_lbl = ttk.Label(bar)
-    game_lbl.pack(side="left", fill="x", expand=True)
+              ).pack(fill="x", padx=12, pady=(4, 0))
 
     def show_game():
-        game_lbl.configure(text=tr("Папка игры: ", "Game folder: ") + game_status(GAME_SONGS))
+        game_path.configure(state="normal")
+        game_path.delete(0, "end")
+        game_path.insert(0, str(GAME_SONGS))
+        game_path.configure(state="readonly")
+        status = game_status(GAME_SONGS)
+        if not GAME_SONGS.is_dir():
+            status += tr(r". Обычно это %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs",
+                         r". Usually %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs")
+        game_lbl.configure(text=status[0].upper() + status[1:])
 
     def pick_game():
         global GAME_SONGS
-        d = filedialog.askdirectory(initialdir=GAME_SONGS if GAME_SONGS.is_dir() else None)
+        d = filedialog.askdirectory(initialdir=GAME_SONGS if GAME_SONGS.is_dir() else None, title=tr(
+            r"Папка ImportedSongs, обычно %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs",
+            r"The ImportedSongs folder, usually %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs"))
         if d:
             GAME_SONGS = find_game_songs(Path(d))
             out_dir.mkdir(parents=True, exist_ok=True)
             saved.write_text(str(GAME_SONGS), encoding="utf-8")
             show_game()
 
-    ttk.Button(bar, text=tr("Сменить папку игры", "Change game folder"), command=pick_game).pack(side="right")
+    game_btn.configure(command=pick_game)
     show_game()
 
     table = ttk.Frame(root)
-    table.pack(fill="both", expand=True, padx=12, pady=(12, 0))
+    table.pack(fill="both", expand=True, padx=12, pady=12)
     cols = ("name", "tempo", "state")
     tree = ttk.Treeview(table, columns=cols, show="headings", selectmode="browse")
     for c, t, w in zip(cols, (tr("Песня", "Song"), tr("Темп", "BPM"), tr("Статус", "Status")), (380, 80, 260)):
