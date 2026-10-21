@@ -25,6 +25,15 @@ AUTO_HINT_RU = ("Дальше в игре открой песню и нажми 
                 "игра сама точно ставит темп и смещение. Числа выше нужны, только если она промахнулась.")
 AUTO_HINT_EN = ("Then open the song in the game and press Auto-detect: the track already starts on a beat, so the game's "
                 "own detection sets the tempo and offset right. The numbers above are only for when it misses.")
+MEDIA_TYPES = "*.mp3 *.wav *.flac *.ogg *.m4a *.opus *.aac *.wma *.aiff *.mp4 *.mkv *.webm *.mov"
+GUI_HELP_RU = """Подходит ссылка на YouTube, SoundCloud или VK и любой аудиофайл (MP3, WAV, FLAC, OGG, M4A) или видео (MP4, MKV). Spotify и Яндекс Музыка не подходят.
+Готовая песня сама появится в «Моей музыке» после перезапуска игры. Там открой её и нажми «Автоматическое определение».
+Если песни нет, добавь в игру WAV из папки с готовыми WAV и потом не перемещай его.
+Первый запуск качает около 1 ГБ."""
+GUI_HELP_EN = """Takes a YouTube, SoundCloud or VK link, any audio file (MP3, WAV, FLAC, OGG, M4A) or a video (MP4, MKV). Not Spotify.
+The song shows up in My Music after a game restart. Open it there and press Auto-detect.
+If it isn't there, add the WAV from the finished WAV folder to the game and keep it in place.
+The first run downloads about 1 GB."""
 GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
 
 
@@ -254,17 +263,166 @@ def _selftest():
     x[200] = 1
     a, trim = align_to_beat(x, 1000, 0.7, 2.0, 0.2)
     assert a[2000] == 1 and a[1500] == 1 and trim == -1.3, trim
+    import tempfile
+    with tempfile.TemporaryDirectory() as t:
+        songs = Path(t) / "Pagoda" / "Saved" / "ImportedSongs"
+        songs.mkdir(parents=True)
+        assert find_game_songs(Path(t)) == songs and find_game_songs(songs.parent.parent) == songs
+        assert find_game_songs(songs) == songs and game_status(songs) != game_status(Path(t) / "nope")
     print("selftest ok")
 
 
 def main():
-    if len(sys.argv) < 2:
-        sys.exit('usage: uv run disco_sync.py "<youtube url | audio file>" [out_dir]')
-    if sys.argv[1] == "--test":
+    args = sys.argv[1:]
+    if args[:1] == ["--test"]:
         return _selftest()
-    out_dir = Path(sys.argv[2] if len(sys.argv) > 2 else ".").resolve()
+    if args[:1] == ["--gui"]:
+        return gui(Path(args[1] if len(args) > 1 else "songs"), args[2] if len(args) > 2 else "")
+    if not args:
+        sys.exit('usage: uv run disco_sync.py "<youtube url | audio file>" [out_dir]\n'
+                 '       uv run disco_sync.py --gui [out_dir] [youtube url | audio file]')
+    run(args[0], Path(args[1] if len(args) > 1 else "."))
+
+
+def find_game_songs(d: Path) -> Path:
+    """Accept the songs folder itself or any parent of it up to Pagoda."""
+    for c in (d, d / "ImportedSongs", d / "Saved" / "ImportedSongs", d / "Pagoda" / "Saved" / "ImportedSongs"):
+        if c.is_dir() and c.name == "ImportedSongs":
+            return c
+    return d
+
+
+def game_status(d: Path) -> str:
+    if not d.is_dir():
+        return tr("не найдена, укажи вручную", "not found, pick it")
+    n = sum(1 for f in d.glob("*/Audio*") if f.is_file())
+    if not n:  # add_to_game copies the audio format from a song the game imported itself
+        return tr("пустая: добавь в игре одну песню сама, потом программа сможет добавлять",
+                  "empty: import one song in the game first, then the tool can add songs")
+    return tr(f"найдена, песен: {n}", f"found, {n} songs")
+
+
+def gui(out_dir: Path, src: str = ""):
+    """A window for people who never used a terminal: paste a link or pick a file, press Start, read the result."""
+    global GAME_SONGS
+    import queue, threading, traceback, tkinter as tk
+    from tkinter import filedialog, scrolledtext
+    saved = out_dir / "game_folder.txt"  # a folder picked by hand is remembered next to the WAVs
+    try:
+        GAME_SONGS = find_game_songs(Path(saved.read_text(encoding="utf-8").strip()))
+    except OSError:
+        pass
+    root = tk.Tk()
+    root.title("Dead as Disco Sync")
+    root.geometry("900x620")
+    tk.Label(root, text=GUI_HELP_RU if RU else GUI_HELP_EN, justify="left", anchor="w", wraplength=870
+             ).pack(fill="x", padx=8, pady=(8, 0))
+
+    game = tk.Frame(root)
+    game.pack(fill="x", padx=8, pady=(8, 0))
+    tk.Label(game, text=tr("Папка песен игры:", "Game songs folder:")).pack(side="left")
+    game_var = tk.StringVar(value=str(GAME_SONGS))
+    tk.Entry(game, textvariable=game_var, state="readonly").pack(side="left", fill="x", expand=True, padx=6)
+    status = tk.Label(game, text=game_status(GAME_SONGS))
+
+    def pick_game():
+        global GAME_SONGS
+        d = filedialog.askdirectory(initialdir=GAME_SONGS if GAME_SONGS.is_dir() else None)
+        if d:
+            GAME_SONGS = find_game_songs(Path(d))
+            game_var.set(str(GAME_SONGS))
+            status.config(text=game_status(GAME_SONGS))
+            out_dir.mkdir(parents=True, exist_ok=True)
+            saved.write_text(str(GAME_SONGS), encoding="utf-8")
+
+    tk.Button(game, text=tr("Выбрать...", "Pick..."), command=pick_game).pack(side="left")
+    status.pack(side="left", padx=6)
+
+    top = tk.Frame(root)
+    top.pack(fill="x", padx=8, pady=8)
+    tk.Label(top, text=tr("Ссылка или файл:", "Link or file:")).pack(side="left")
+    entry = tk.Entry(top)
+    entry.pack(side="left", fill="x", expand=True, padx=6)
+    entry.insert(0, src)
+
+    def pick():
+        f = filedialog.askopenfilename(filetypes=[(tr("Аудио и видео", "Audio and video"), MEDIA_TYPES),
+                                                  (tr("Все файлы", "All files"), "*.*")])
+        if f:
+            entry.delete(0, "end")
+            entry.insert(0, f)
+
+    tk.Button(top, text=tr("Файл...", "File..."), command=pick).pack(side="left")
+    btn = tk.Button(top, text=tr("Старт", "Start"), width=10)
+    btn.pack(side="left", padx=(6, 0))
+    bottom = tk.Frame(root)
+    bottom.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+
+    def open_dir(d: Path):
+        if d.is_dir():
+            os.startfile(d)
+        else:
+            print(tr(f"\nПапки пока нет: {d}", f"\nNo such folder yet: {d}"))
+
+    tk.Button(bottom, text=tr("Папка с готовыми WAV", "Finished WAV folder"),
+              command=lambda: open_dir(out_dir.resolve())).pack(side="left")
+    tk.Button(bottom, text=tr("Открыть папку игры", "Open game folder"),
+              command=lambda: open_dir(GAME_SONGS)).pack(side="left", padx=6)
+    log = scrolledtext.ScrolledText(root, font=("Consolas", 10), wrap="word")
+    log.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+    log.insert("end", tr("Здесь появится результат.\n", "The result shows up here.\n"))
+    q = queue.Queue()  # tk is not thread-safe: the worker only writes here, the window drains it
+
+    class Out:
+        def write(self, s):
+            q.put(s)
+
+        def flush(self):
+            pass
+
+    sys.stdout = sys.stderr = Out()
+
+    def work(s):
+        try:
+            run(s, out_dir)
+            print(tr("\nГотово.", "\nDone."))
+        except SystemExit as e:  # fetch_wav exits with a message when YouTube blocks the download
+            if e.code:
+                print(e.code)
+        except Exception as e:
+            traceback.print_exc(file=sys.__stderr__)
+            print(tr("\nОшибка: ", "\nError: ") + str(e))
+        q.put(None)
+
+    def start(_=None):
+        s = entry.get().strip().strip('"')
+        if s and btn["state"] == "normal":
+            btn.config(state="disabled")
+            log.delete("1.0", "end")
+            threading.Thread(target=work, args=(s,), daemon=True).start()
+
+    def pump():
+        while not q.empty():
+            s = q.get()
+            if s is None:
+                btn.config(state="normal")
+            else:
+                log.insert("end", s)
+                log.see("end")
+        root.after(100, pump)
+
+    btn.config(command=start)
+    entry.bind("<Return>", start)
+    pump()
+    if src:  # a file dropped onto the .bat starts right away
+        root.after(300, start)
+    root.mainloop()
+
+
+def run(src: str, out_dir: Path):
+    out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    wav = fetch_wav(sys.argv[1], out_dir)
+    wav = fetch_wav(src, out_dir)
     print(tr("Анализ", "Analyzing") + f": {wav.name} ...")
     r = analyze(wav)
     if "sync" in r:

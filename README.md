@@ -7,9 +7,9 @@
 ## Запуск (Windows)
 
 1. Скачать один файл: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** и положить в отдельную папку.
-2. Перетащить на него аудиофайл, или запустить и вставить ссылку на YouTube / путь к файлу. Windows может спросить «Запустить?» — да.
-3. Если игра стоит на этом компьютере, песня **сама добавляется в «Мою музыку»** уже с настройками: перезапустить игру (Reload Directory новые песни не видит). Если вариантов два, добавляются оба. Иначе — добавить WAV из папки `songs\` (Проводник откроется с ним сам).
-4. В игре открыть песню и нажать **«Автоматическое определение»**. Трек уже начинается на доле, и на нём игра сама точно ставит темп и своё смещение. Числа из окна программы нужны, только если автоопределение промахнулось.
+2. Запустить его: откроется окно. Вставить ссылку или выбрать файл (аудио или видео) и нажать «Старт». Можно и просто перетащить файл на батник. Windows может спросить «Запустить?», ответить «да».
+3. Песня **сама добавляется в «Мою музыку»**, если в игре уже есть хоть одна песня. Папку игры программа находит сама, её можно указать и вручную. Потом перезапустить игру: Reload Directory новые песни не видит. Если песня не появилась, добавить WAV из папки `songs\`.
+4. В игре открыть песню и нажать **«Автоматическое определение»**. Трек уже начинается на доле, и игра сама ставит темп и смещение. Числа из программы нужны, только если автоопределение промахнулось.
 
 Первый запуск сам ставит [uv](https://github.com/astral-sh/uv), Python, библиотеки и модели (~1 ГБ, несколько минут). Дальше 30 с – 2 мин на песню.
 
@@ -34,9 +34,9 @@
 YouTube link or audio file → WAV plus the **My Music** settings for Dead as Disco: **BPM**, **Beat Offset (ms)**, **Start Time (s)**, **End Time (s)**. Tested in game.
 
 1. Download one file: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** into its own folder.
-2. Drop an audio file onto it, or run it and paste a YouTube link / file path.
-3. If the game is installed on this PC, the song is **added to My Music automatically** with its settings: restart the game (Reload Directory doesn't pick up new songs). Otherwise add the WAV from `songs\` (Explorer opens with it selected).
-4. In the game open the song and press **Auto-detect**. The track already starts on a beat, and on it the game's own detection sets the tempo and its offset right. The numbers the tool prints are only for when auto-detect misses.
+2. Run it: a window opens. Paste a link or pick a file (audio or video) and press Start. Dropping a file onto the .bat works too.
+3. The song is **added to My Music automatically** if the game already has at least one song. The game folder is found automatically, or you can pick it. Restart the game: Reload Directory doesn't pick up new songs. If the song isn't there, add the WAV from `songs\`.
+4. In the game open the song and press **Auto-detect**. The track already starts on a beat, so the game sets tempo and offset itself. The numbers the tool prints are only for when auto-detect misses.
 
 The first run installs uv, Python, libraries and models (~1 GB). Output is in English unless Windows is set to Russian.
 
