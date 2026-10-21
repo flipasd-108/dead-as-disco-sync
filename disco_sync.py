@@ -38,6 +38,32 @@ GUI_HELP_EN = ("You can also drop a file onto the window. Files: WAV, MP3, OGG, 
 GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
 
 
+def game_analysed(songs: Path, ours: Path) -> list[dict]:
+    """Songs this tool added (their source WAV sits in `ours`) that the game has since analysed with Auto-detect.
+    Our WAV starts on a beat and we write beatOffset 0, so whatever the game puts there is its own correction."""
+    found = []
+    for meta in sorted(songs.glob("*/Meta.json")) if songs.is_dir() else []:
+        try:
+            m = json.loads(meta.read_text(encoding="utf-8"))
+            src = Path(str(m.get("originalAudioFilePath", "")))
+            tempo, offset = float(m.get("tempo") or 0), float(m.get("beatOffset") or 0)
+        except (OSError, ValueError, TypeError):
+            continue
+        analysed = (m.get("analyseResult") or {}).get("bAnalyseSuccessful") or offset
+        if tempo > 0 and analysed and os.path.normcase(str(src.parent)) == os.path.normcase(str(ours)):
+            period = 60000 / tempo
+            found.append(dict(name=meta.parent.name, tempo=tempo, offset=(offset + period / 2) % period - period / 2))
+    return found
+
+
+def game_offset(found: list[dict]) -> int | None:
+    """The game's correction when it is the same on every analysed song (3+ songs within 15 ms), else None."""
+    offs = sorted(f["offset"] for f in found)
+    if len(offs) < 3 or offs[-1] - offs[0] > 15:
+        return None
+    return round(offs[len(offs) // 2])
+
+
 def add_to_game(r: dict) -> Path | None:
     """Add the song to the game's My Music the way its own import does: a folder with the audio and Meta.json.
     Only creates a new folder, never touches existing songs."""
@@ -54,10 +80,17 @@ def add_to_game(r: dict) -> Path | None:
         shutil.copyfile(r["wav"], audio)
     else:  # the game keeps another format: convert, the WAV already starts on a beat
         subprocess.run([FFMPEG, "-y", "-v", "error", "-i", str(r["wav"]), str(audio)], check=True)
+    beat_offset = r["offset"]
+    found = game_analysed(GAME_SONGS, r["wav"].parent)
+    correction = game_offset(found)
+    if correction is not None:  # the game shifts our songs by the same amount: write it, Auto-detect becomes optional
+        beat_offset = round((beat_offset + correction) % (60000 / r["bpm"]))
+        print(tr(f"Смещение как у игры: {beat_offset} мс (по {len(found)} песням после автоопределения)",
+                 f"Offset as the game sets it: {beat_offset} ms (from {len(found)} auto-detected songs)"))
     meta = {
         "version": 1, "uniqueId": random.getrandbits(32), "songName": folder.name, "performedBy": [], "writtenBy": [],
         "seed": random.getrandbits(31), "tempo": round(r["bpm"], 2), "customTempoSections": [],
-        "beatOffset": r["offset"], "startSongOffset": r["start"], "endSongOffset": 0, "uEAssetName": folder.name,
+        "beatOffset": beat_offset, "startSongOffset": r["start"], "endSongOffset": 0, "uEAssetName": folder.name,
         "originalAudioFileHash": hashlib.md5(r["wav"].read_bytes()).hexdigest(),
         "originalAudioFilePath": r["wav"].as_posix(),
         "analyseResult": {"bAnalyseSuccessful": False, "bFoundTempo": False, "bFoundOffset": False, "tempo": 0,
@@ -311,6 +344,17 @@ def _selftest():
         songs.mkdir(parents=True)
         assert find_game_songs(Path(t)) == songs and find_game_songs(songs.parent.parent) == songs
         assert find_game_songs(songs) == songs and game_status(songs) != game_status(Path(t) / "nope")
+    with tempfile.TemporaryDirectory() as t:
+        songs, ours = Path(t) / "ImportedSongs", Path(t) / "songs"
+        for i, (src, off, done) in enumerate(((ours, 31, True), (ours, 29, True), (ours, 30, True),
+                                              (ours, 0, False), (Path(t) / "Downloads", 284, True))):
+            (songs / str(i)).mkdir(parents=True)
+            (songs / str(i) / "Meta.json").write_text(json.dumps({
+                "tempo": 120, "beatOffset": off, "originalAudioFilePath": (src / f"{i}.wav").as_posix(),
+                "analyseResult": {"bAnalyseSuccessful": done}}), encoding="utf-8")
+        found = game_analysed(songs, ours)
+        assert [f["name"] for f in found] == ["0", "1", "2"] and game_offset(found) == 30, found
+        assert game_offset(found[:2]) is None and game_offset(found + [dict(offset=60)]) is None
     for raw, clean in (("Rick Astley - Never Gonna Give You Up (Official Music Video) [4K Remaster]",
                         "Rick Astley - Never Gonna Give You Up"),
                        ("Bee Gees - Stayin' Alive (Official Video)", "Bee Gees - Stayin' Alive"),
@@ -572,6 +616,12 @@ def gui(out_dir: Path, src: str = ""):
         if not GAME_SONGS.is_dir():
             status += tr(r". Обычно это %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs",
                          r". Usually %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs")
+        found = game_analysed(GAME_SONGS, out_dir)
+        correction = game_offset(found)
+        if correction is not None:
+            status += tr(f". Игра сдвигает наши песни на {correction} мс (по {len(found)} песням), новые получат "
+                         f"это смещение сразу", f". The game shifts our songs by {correction} ms ({len(found)} songs); "
+                         f"new ones get it right away")
         cv.itemconfigure(t_game, text=status[0].upper() + status[1:])
         relayout()
 
@@ -752,6 +802,8 @@ def gui(out_dir: Path, src: str = ""):
     log_file = open(log_path, "a", encoding="utf-8", buffering=1)
     log_file.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} start, Python {sys.version.split()[0]}, "
                    f"{sys.platform}\n")
+    for f in game_analysed(GAME_SONGS, out_dir):  # what the game did to our songs: tempo and its own offset
+        log_file.write(f"game analysed: {f['name']}: tempo {f['tempo']}, offset {f['offset']:+.0f} ms\n")
 
     class Out:
         def write(self, s):
