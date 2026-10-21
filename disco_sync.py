@@ -346,7 +346,8 @@ def gui(out_dir: Path, src: str = ""):
     game_btn = ttk.Button(gbox, text=tr("Указать", "Pick"))
     game_btn.pack(side="left", padx=(8, 0))
     game_lbl = ttk.Label(root, foreground="gray")
-    game_lbl.pack(anchor="w", padx=12, pady=(4, 0))
+    game_lbl.pack(fill="x", padx=12, pady=(4, 0))
+    game_lbl.bind("<Configure>", lambda e: game_lbl.configure(wraplength=e.width))
 
     ttk.Label(root, text=tr("2. Ссылка на YouTube, SoundCloud, VK или аудио- или видеофайл",
                             "2. A YouTube, SoundCloud or VK link, or an audio or video file")
@@ -368,8 +369,9 @@ def gui(out_dir: Path, src: str = ""):
     ttk.Button(top, text=tr("Обзор", "Browse"), command=pick).pack(side="left", padx=(8, 0))
     start = ttk.Button(top, text=tr("Старт", "Start"), style="Accent.TButton", command=lambda: go())
     start.pack(side="left", padx=(8, 0))
-    ttk.Label(root, text=GUI_HELP_RU if RU else GUI_HELP_EN, foreground="gray", wraplength=790, justify="left"
-              ).pack(fill="x", padx=12, pady=(4, 0))
+    help_lbl = ttk.Label(root, text=GUI_HELP_RU if RU else GUI_HELP_EN, foreground="gray", justify="left")
+    help_lbl.pack(fill="x", padx=12, pady=(4, 0))
+    help_lbl.bind("<Configure>", lambda e: help_lbl.configure(wraplength=e.width))  # rewrap when the window resizes
 
     def show_game():
         game_path.configure(state="normal")
@@ -473,6 +475,9 @@ def gui(out_dir: Path, src: str = ""):
     def go(_=None):
         s = entry.get().strip().strip('"')
         if not s or current:
+            return
+        if not s.startswith(("http://", "https://")) and not Path(s).is_file():
+            messagebox.showerror("Dead as Disco Sync", tr(f"Файл не найден:\n{s}", f"File not found:\n{s}"))
             return
         h = {"name": s if s.startswith("http") else Path(s).stem, "src": s, "busy": True,
              "step": tr("Начинаю", "Starting"), "log": ""}
