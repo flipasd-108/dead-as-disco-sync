@@ -321,12 +321,15 @@ def tempo_txt(v: dict) -> str:
 WALLPAPER_URL = "https://images4.alphacoders.com/140/thumb-1920-1403387.png"  # Dead as Disco key art, alphacoders
 
 
-def wallpaper(root, out_dir: Path):
-    """Game art behind the window, the controls on a plain panel over it. Returns the panel, or root without art.
-    The art isn't in the repo: a background.* next to the WAVs wins, else it is fetched once into that folder."""
+def backdrop(root, out_dir: Path):
+    """A canvas filling the window with the game's art on it, darkened so the controls on top stay readable.
+    Returns (canvas, has_art). The art isn't in the repo: a background.* next to the WAVs wins, else it is
+    fetched once into that folder; offline the canvas is plain."""
     import tkinter as tk
     from tkinter import ttk
     from PIL import Image, ImageEnhance, ImageTk
+    cv = tk.Canvas(root, highlightthickness=0, background=ttk.Style().lookup(".", "background") or "#1c1c1c")
+    cv.pack(fill="both", expand=True)
     art = next(iter(sorted(out_dir.glob("background.*"))), None)
     try:
         if art is None:
@@ -336,28 +339,26 @@ def wallpaper(root, out_dir: Path):
             art = out_dir / "background.png"
             art.write_bytes(data)
         img = Image.open(art).convert("RGB")
-    except OSError:  # offline, the site moved the file, or not an image: plain window
-        return root
+    except OSError:  # offline, the site moved the file, or not an image
+        return cv, False
     img.thumbnail((1920, 1920))
-    img = ImageEnhance.Brightness(img).enhance(0.75)  # a little darker, so the panel stands out
-    bg = tk.Label(root, borderwidth=0)
-    bg.place(x=0, y=0, relwidth=1, relheight=1)
+    img = ImageEnhance.Brightness(img).enhance(0.45)
+    bg = cv.create_image(0, 0, anchor="nw")
     size = [0, 0]
 
     def fit(e):
-        if e.widget is not root or [e.width, e.height] == size:
+        if [e.width, e.height] == size:
             return
         size[:] = w, h = max(e.width, 1), max(e.height, 1)
-        s = max(w / img.width, h / img.height)  # cover the window, crop what overflows
+        s = max(w / img.width, h / img.height)  # cover the whole window, crop what overflows
         im = img.resize((round(img.width * s), round(img.height * s)), Image.BILINEAR)
         x, y = (im.width - w) // 2, (im.height - h) // 4  # keep more of the top, where the faces are
-        bg.image = ImageTk.PhotoImage(im.crop((x, y, x + w, y + h)))
-        bg.configure(image=bg.image)
+        cv.photo = ImageTk.PhotoImage(im.crop((x, y, x + w, y + h)))
+        cv.itemconfigure(bg, image=cv.photo)
+        cv.tag_lower(bg)
 
-    root.bind("<Configure>", fit, add="+")
-    panel = ttk.Frame(root)
-    panel.pack(fill="both", expand=True, padx=24, pady=(150, 24))
-    return panel
+    cv.bind("<Configure>", fit, add="+")
+    return cv, True
 
 
 def gui(out_dir: Path, src: str = ""):
@@ -393,28 +394,21 @@ def gui(out_dir: Path, src: str = ""):
     if not light:  # dark title bar to match (Windows 10 2004+ / 11), once the window is on screen
         root.bind("<Map>", lambda e: e.widget is root and ctypes.windll.dwmapi.DwmSetWindowAttribute(
             ctypes.windll.user32.GetParent(root.winfo_id()), 20, ctypes.byref(ctypes.c_int(1)), 4), add="+")
-    body = wallpaper(root, out_dir)
+    cv, art = backdrop(root, out_dir)
+    # labels are canvas text, so the art shows around the controls; light text on the darkened art
+    fg, dim = ("#ffffff", "#d6d6d6") if art or not light else ("#1a1a1a", "#5c5c5c")
+    font = ("Segoe UI", 10)
 
-    # step 1: where the game keeps My Music, step 2: the song
-    ttk.Label(body, text=tr("1. Папка «Моей музыки» в сохранениях игры", "1. My Music folder in the game's saves")
-              ).pack(anchor="w", padx=12, pady=(12, 0))
-    gbox = ttk.Frame(body)
-    gbox.pack(fill="x", padx=12, pady=(4, 0))
-    game_path = ttk.Entry(gbox, state="readonly")  # readonly: the whole path is visible and copyable
-    game_path.pack(side="left", fill="x", expand=True)
-    game_btn = ttk.Button(gbox, text=tr("Указать", "Pick"))
-    game_btn.pack(side="left", padx=(8, 0))
-    game_lbl = ttk.Label(body, foreground="gray")
-    game_lbl.pack(fill="x", padx=12, pady=(4, 0))
-    game_lbl.bind("<Configure>", lambda e: game_lbl.configure(wraplength=e.width))
+    def text(t, color=fg):
+        return cv.create_text(0, 0, anchor="nw", text=t, fill=color, font=font)
 
-    ttk.Label(body, text=tr("2. Ссылка на YouTube, SoundCloud, VK или аудио- или видеофайл",
-                            "2. A YouTube, SoundCloud or VK link, or an audio or video file")
-              ).pack(anchor="w", padx=12, pady=(16, 0))
-    top = ttk.Frame(body)
-    top.pack(fill="x", padx=12, pady=(4, 0))
-    entry = ttk.Entry(top)
-    entry.pack(side="left", fill="x", expand=True)
+    t_game_title = text(tr("1. Папка «Моей музыки» в сохранениях игры", "1. My Music folder in the game's saves"))
+    game_path = ttk.Entry(cv, state="readonly")  # readonly: the whole path is visible and copyable
+    game_btn = ttk.Button(cv, text=tr("Указать", "Pick"))
+    t_game = text("", dim)
+    t_song_title = text(tr("2. Ссылка на YouTube, SoundCloud, VK или аудио- или видеофайл",
+                           "2. A YouTube, SoundCloud or VK link, or an audio or video file"))
+    entry = ttk.Entry(cv)
     if src:
         entry.insert(0, src)
 
@@ -425,12 +419,47 @@ def gui(out_dir: Path, src: str = ""):
             entry.delete(0, "end")
             entry.insert(0, f)
 
-    ttk.Button(top, text=tr("Обзор", "Browse"), command=pick).pack(side="left", padx=(8, 0))
-    start = ttk.Button(top, text=tr("Старт", "Start"), style="Accent.TButton", command=lambda: go())
-    start.pack(side="left", padx=(8, 0))
-    help_lbl = ttk.Label(body, text=GUI_HELP_RU if RU else GUI_HELP_EN, foreground="gray", justify="left")
-    help_lbl.pack(fill="x", padx=12, pady=(4, 0))
-    help_lbl.bind("<Configure>", lambda e: help_lbl.configure(wraplength=e.width))  # rewrap when the window resizes
+    browse = ttk.Button(cv, text=tr("Обзор", "Browse"), command=pick)
+    start = ttk.Button(cv, text=tr("Старт", "Start"), style="Accent.TButton", command=lambda: go())
+    t_help = text(GUI_HELP_RU if RU else GUI_HELP_EN, dim)
+    table = ttk.Frame(cv)
+    wins = {w: cv.create_window(0, 0, anchor="nw", window=w) for w in (game_path, game_btn, entry, browse, start, table)}
+
+    def relayout(_=None):
+        """Stack the rows top-down; a row is a stretching entry plus buttons on its right."""
+        W, H = cv.winfo_width(), cv.winfo_height()
+        x0, width, y = 24, max(cv.winfo_width() - 48, 200), 20
+
+        def put_text(item, gap):
+            nonlocal y
+            cv.coords(item, x0, y)
+            cv.itemconfigure(item, width=width)
+            x1, y1, x2, y2 = cv.bbox(item)
+            y += (y2 - y1) + gap
+
+        def put_row(field, buttons, gap):
+            nonlocal y
+            h = max(w.winfo_reqheight() for w in (field, *buttons))
+            x = x0 + width
+            for b in reversed(buttons):
+                x -= b.winfo_reqwidth()
+                cv.coords(wins[b], x, y)
+                cv.itemconfigure(wins[b], height=h)
+                x -= 8
+            cv.coords(wins[field], x0, y)
+            cv.itemconfigure(wins[field], width=x - x0, height=h)
+            y += h + gap
+
+        put_text(t_game_title, 4)
+        put_row(game_path, [game_btn], 4)
+        put_text(t_game, 16)
+        put_text(t_song_title, 4)
+        put_row(entry, [browse, start], 6)
+        put_text(t_help, 12)
+        cv.coords(wins[table], x0, y)
+        cv.itemconfigure(wins[table], width=width, height=max(H - y - 24, 80))
+
+    cv.bind("<Configure>", relayout, add="+")
 
     def show_game():
         game_path.configure(state="normal")
@@ -441,7 +470,8 @@ def gui(out_dir: Path, src: str = ""):
         if not GAME_SONGS.is_dir():
             status += tr(r". Обычно это %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs",
                          r". Usually %LOCALAPPDATA%\Pagoda\Saved\ImportedSongs")
-        game_lbl.configure(text=status[0].upper() + status[1:])
+        cv.itemconfigure(t_game, text=status[0].upper() + status[1:])
+        relayout()
 
     def pick_game():
         global GAME_SONGS
@@ -457,8 +487,6 @@ def gui(out_dir: Path, src: str = ""):
     game_btn.configure(command=pick_game)
     show_game()
 
-    table = ttk.Frame(body)
-    table.pack(fill="both", expand=True, padx=12, pady=12)
     cols = ("name", "tempo", "state")
     tree = ttk.Treeview(table, columns=cols, show="headings", selectmode="extended")
     for c, t, w in zip(cols, (tr("Песня", "Song"), tr("Темп", "BPM"), tr("Статус", "Status")), (380, 80, 260)):
