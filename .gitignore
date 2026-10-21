@@ -2,3 +2,4 @@ songs/
 _test/
 __pycache__/
 *.wav
+disco_sync_gpu.py

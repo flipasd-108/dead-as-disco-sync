@@ -204,8 +204,20 @@ CHECKPOINTS = ("final0", "final1", "final2")  # three independently trained Beat
 @cache
 def beat_model(checkpoint: str):
     """Loaded once per run: the window analyses many songs, and the sync pass reuses them."""
+    import torch
     from beat_this.inference import Audio2Beats
-    return Audio2Beats(checkpoint_path=checkpoint, device="cpu", dbn=False)
+    # the GPU build (disco_sync_gpu.py) gets CUDA; with an old driver it quietly stays on the CPU
+    return Audio2Beats(checkpoint_path=checkpoint, device="cuda" if torch.cuda.is_available() else "cpu", dbn=False)
+
+
+def nvidia_gpu() -> str:
+    """Name of the NVIDIA card, or "": nvidia-smi comes with the driver."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True,
+                             text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return out.stdout.strip().splitlines()[0] if out.returncode == 0 and out.stdout.strip() else ""
 
 
 def analyze(wav: Path, warp: bool = True, period: float | None = None):
@@ -423,7 +435,20 @@ def gui(out_dir: Path, src: str = ""):
     start = ttk.Button(cv, text=tr("Старт", "Start"), style="Accent.TButton", command=lambda: go())
     t_help = text(GUI_HELP_RU if RU else GUI_HELP_EN, dim)
     table = ttk.Frame(cv)
-    wins = {w: cv.create_window(0, 0, anchor="nw", window=w) for w in (game_path, game_btn, entry, browse, start, table)}
+
+    # CPU or the NVIDIA card: the choice lives in songs\gpu.txt, the .bat picks the matching build on the next start
+    import importlib.metadata
+    card = nvidia_gpu()
+    gpu_flag = out_dir / "gpu.txt"
+    gpu_now = "+cu" in importlib.metadata.version("torch")  # this run is the CUDA build
+    gpu_var = tk.BooleanVar(value=gpu_now)
+    gpu_chk = ttk.Checkbutton(cv, text=tr(f"Считать на видеокарте {card}", f"Use the graphics card {card}"),
+                              variable=gpu_var, command=lambda: set_gpu(gpu_var.get()))
+    t_gpu = text("", dim)
+    widgets = (game_path, game_btn, entry, browse, start, table) + ((gpu_chk,) if card else ())
+    wins = {w: cv.create_window(0, 0, anchor="nw", window=w) for w in widgets}
+    if not card:
+        cv.itemconfigure(t_gpu, state="hidden")
 
     def relayout(_=None):
         """Stack the rows top-down; a row is a stretching entry plus buttons on its right."""
@@ -456,10 +481,40 @@ def gui(out_dir: Path, src: str = ""):
         put_text(t_song_title, 4)
         put_row(entry, [browse, start], 6)
         put_text(t_help, 12)
+        bottom = gpu_chk.winfo_reqheight() + 10 if card else 0
         cv.coords(wins[table], x0, y)
-        cv.itemconfigure(wins[table], width=width, height=max(H - y - 24, 80))
+        cv.itemconfigure(wins[table], width=width, height=max(H - y - 24 - bottom, 80))
+        if card:  # the switch under the table, its note to the right
+            yb = H - 24 - gpu_chk.winfo_reqheight()
+            cv.coords(wins[gpu_chk], x0, yb)
+            xn = x0 + gpu_chk.winfo_reqwidth() + 12
+            cv.itemconfigure(t_gpu, width=max(x0 + width - xn, 100))
+            x1, y1, x2, y2 = cv.bbox(t_gpu)
+            cv.coords(t_gpu, xn, yb + (gpu_chk.winfo_reqheight() - (y2 - y1)) // 2)
 
     cv.bind("<Configure>", relayout, add="+")
+
+    def gpu_note():
+        want = gpu_var.get()
+        if want != gpu_now:
+            note = tr("Включится после перезапуска программы" + (", докачается около 2,5 ГБ" if want else ""),
+                      "Takes effect after a restart" + (", downloads about 2.5 GB" if want else ""))
+        elif want:
+            note = tr("Считает видеокарта: 3-минутная песня ~5 с вместо ~12 с на процессоре",
+                      "The GPU runs it: a 3-minute song takes ~5 s instead of ~12 s on the CPU")
+        else:
+            note = tr("Считает процессор. На видеокарте 3-минутная песня ~5 с вместо ~12 с, один раз докачается 2,5 ГБ",
+                      "The CPU runs it. On the GPU a 3-minute song takes ~5 s instead of ~12 s, after a 2.5 GB download")
+        cv.itemconfigure(t_gpu, text=note)
+
+    def set_gpu(on: bool):
+        gpu_var.set(on)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        gpu_flag.write_text("on" if on else "off", encoding="ascii")
+        gpu_note()
+        relayout()
+
+    gpu_note()
 
     def show_game():
         game_path.configure(state="normal")
@@ -716,6 +771,39 @@ def gui(out_dir: Path, src: str = ""):
     entry.focus_set()
     # load the models while the user pastes a link; a song started earlier just waits on the same cache
     threading.Thread(target=lambda: [beat_model(c) for c in CHECKPOINTS], daemon=True).start()
+
+    def offer_gpu():
+        """First start with an NVIDIA card: ask once, with the trade-offs. The switch under the table changes it later."""
+        if gpu_flag.exists() or gpu_now or not card:
+            return
+        on = messagebox.askyesno(tr("Ускорение на видеокарте", "GPU acceleration"), tr(
+            f"Найдена видеокарта {card}. Считать на ней?\n\n"
+            "Скорость на 3-минутной песне (проверено на RTX 4080):\n"
+            "• обычная песня: ~5 с вместо ~12 с на процессоре;\n"
+            "• песня с плавающим темпом (живые барабаны): ~30 с вместо ~37 с, выравнивание темпа всё равно "
+            "идёт на процессоре.\n\n"
+            "Цена:\n"
+            "• один раз докачается около 2,5 ГБ, на диске займёт ещё около 4 ГБ;\n"
+            "• нужен свежий драйвер NVIDIA; со старым программа сама посчитает на процессоре;\n"
+            "• видеокарты AMD и Intel не поддерживаются.\n\n"
+            "Включится со следующего запуска. Передумать можно переключателем под списком песен.",
+            f"Found {card}. Use it?\n\n"
+            "Speed on a 3-minute song (measured on an RTX 4080):\n"
+            "• a regular song: ~5 s instead of ~12 s on the CPU;\n"
+            "• a song with a drifting tempo (live drums): ~30 s instead of ~37 s, fixing the tempo still runs "
+            "on the CPU.\n\n"
+            "Cost:\n"
+            "• a one-time download of about 2.5 GB, about 4 GB more on disk;\n"
+            "• needs a recent NVIDIA driver; with an old one the tool falls back to the CPU;\n"
+            "• AMD and Intel cards aren't supported.\n\n"
+            "Takes effect on the next start. The switch under the song list changes it later."))
+        set_gpu(on)
+        if on:
+            messagebox.showinfo(tr("Ускорение на видеокарте", "GPU acceleration"), tr(
+                "Закрой программу и запусти снова: докачается версия для видеокарты.",
+                "Close the tool and start it again: the GPU version will download."))
+
+    root.after(800, offer_gpu)
     pump()
     if src:  # a file dropped onto the .bat starts right away
         root.after(300, go)

@@ -11,7 +11,11 @@
 3. Песня **сама добавляется в «Мою музыку»**, если в игре уже есть хоть одна песня. Папку с песнями в сохранениях игры (`%LOCALAPPDATA%\Pagoda\Saved\ImportedSongs`) программа находит сама, её можно указать и вручную. Потом перезапустить игру: Reload Directory новые песни не видит. Если песня не появилась, добавить WAV из папки `songs\`.
 4. В игре открыть песню и нажать **«Автоматическое определение»**. Трек уже начинается на доле, и игра сама ставит темп и смещение. Числа из программы нужны, только если автоопределение промахнулось.
 
-Первый запуск сам ставит [uv](https://github.com/astral-sh/uv), Python, библиотеки и модели (~1 ГБ, несколько минут). Дальше 30 с – 2 мин на песню.
+Первый запуск сам ставит [uv](https://github.com/astral-sh/uv), Python, библиотеки и модели (~1 ГБ, несколько минут). Дальше на 3-минутную песню около 12 с, с плавающим темпом около 40 с.
+
+Если есть видеокарта NVIDIA, окно при первом запуске предложит считать на ней: обычная песня ~5 с вместо ~12 с, но один раз докачается около 2,5 ГБ (на диске ещё ~4 ГБ). Потом это меняется переключателем под списком песен, выбор хранится в `songs\gpu.txt`. Видеокарты AMD и Intel не поддерживаются.
+
+Фон окна — обои из игры, они скачиваются при первом запуске в `songs\background.png`. Свою картинку можно положить туда же под именем `background.png` или `background.jpg`.
 
 **Грузить в игру именно этот WAV и не перемещать его**: смещение измерено на нём, MP3 того же трека может быть сдвинут на десятки мс.
 
@@ -39,6 +43,10 @@ YouTube link or audio file → WAV plus the **My Music** settings for Dead as Di
 4. In the game open the song and press **Auto-detect**. The track already starts on a beat, so the game sets tempo and offset itself. The numbers the tool prints are only for when auto-detect misses.
 
 The first run installs uv, Python, libraries and models (~1 GB). Output is in English unless Windows is set to Russian.
+
+With an NVIDIA card the window offers to use it on the first start: a regular song takes ~5 s instead of ~12 s, after a one-time 2.5 GB download (~4 GB on disk). The switch under the song list changes it later; the choice is kept in `songs\gpu.txt`. AMD and Intel cards aren't supported.
+
+The window's background is game art, fetched on the first start into `songs\background.png`; put your own `background.png` or `background.jpg` there to replace it.
 
 How it works: the WAV is trimmed (or padded) to start exactly on a beat, so Beat Offset is always 0 and Start Time 0, as the developers ask; three independently trained Beat This! models vote on beats and BPM; a least-squares constant grid gives BPM to 0.01; the offset is the attacks vote (1 ms resolution) when it agrees with the models within 12 ms, otherwise the models' median. If the tempo drifts more than 20 ms (live drummer), you get two options: the untouched original and a `(sync)` copy time-warped by 1–2% between beats onto one constant tempo, so a single BPM fits the whole song.
 
