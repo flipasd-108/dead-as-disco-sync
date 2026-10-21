@@ -275,8 +275,8 @@ def main():
         show(r, tr("Моя музыка -> вбить в игру", "My Music -> enter in the game"))
     added = [f for f in (add_to_game(v) for v in (r, r.get("sync")) if v) if f]
     if added:
-        print(tr("\nУже в игре, вбивать ничего не нужно: «Моя музыка» -> Reload Directory (или перезапусти игру).",
-                 "\nAlready in the game, nothing to type: My Music -> Reload Directory (or restart the game)."))
+        print(tr("\nДобавлено в игру, вбивать ничего не нужно: перезапусти игру, и песня будет в «Моей музыке».",
+                 "\nAdded to the game, nothing to type: restart the game and the song is in My Music."))
         for f in added:
             print(f"  + {f.name}")
         print(tr("Если в игре не появилось, добавь вручную WAV отсюда и вбей числа выше:",
