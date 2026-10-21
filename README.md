@@ -86,7 +86,7 @@
 
 - Без окна: `uv run disco_sync.py "<ссылка или файл>" [папка]`. Самопроверка: `uv run disco_sync.py --test`.
 - Всё в одном файле `disco_sync.py`, зависимости записаны в нём же ([PEP 723](https://peps.python.org/pep-0723/)), версии закреплены, кроме yt-dlp: старые версии YouTube ломает.
-- Релиз собирает GitHub Actions по тегу: `git tag -a v1.7 -F заметки.md && git push origin v1.7`. Он прогоняет самопроверку, собирает `disco_sync_gpu.py` (`tools/make_gpu.py`: тот же код, но torch из индекса PyTorch для CUDA) и прикладывает `DeadAsDiscoSync.bat` (это `run.bat`), `disco_sync.py` и `disco_sync_gpu.py`. Текст тега становится заметками к релизу.
+- Каждый push в main прогоняет самопроверку в GitHub Actions, а релиз собирается по тегу: `git tag -a v1.8 -F заметки.md && git push origin v1.8`. Он прогоняет самопроверку, собирает `disco_sync_gpu.py` (`tools/make_gpu.py`: тот же код, но torch из индекса PyTorch для CUDA) и прикладывает `DeadAsDiscoSync.bat` (это `run.bat`), `disco_sync.py` и `disco_sync_gpu.py`. Текст тега становится заметками к релизу.
 - Сценарии и устройство окна: [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md).
 
 ## Благодарности

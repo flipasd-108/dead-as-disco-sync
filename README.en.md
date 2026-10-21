@@ -88,7 +88,7 @@ The developers said in an [80.lv interview](https://80.lv/articles/interview-how
 
 - Without the window: `uv run disco_sync.py "<link or file>" [folder]`. Self-test: `uv run disco_sync.py --test`.
 - Everything is in `disco_sync.py`, with its dependencies inline ([PEP 723](https://peps.python.org/pep-0723/)), pinned except yt-dlp, which YouTube keeps breaking.
-- GitHub Actions builds a release from a tag: `git tag -a v1.7 -F notes.md && git push origin v1.7`. It runs the self-test, builds `disco_sync_gpu.py` (`tools/make_gpu.py`: the same code with torch from the PyTorch CUDA index) and attaches `DeadAsDiscoSync.bat` (that's `run.bat`), `disco_sync.py` and `disco_sync_gpu.py`. The tag message becomes the release notes.
+- Every push to main runs the self-test on GitHub Actions; a release is built from a tag: `git tag -a v1.8 -F notes.md && git push origin v1.8`. It runs the self-test, builds `disco_sync_gpu.py` (`tools/make_gpu.py`: the same code with torch from the PyTorch CUDA index) and attaches `DeadAsDiscoSync.bat` (that's `run.bat`), `disco_sync.py` and `disco_sync_gpu.py`. The tag message becomes the release notes.
 - Scenarios and the window's layout, in Russian: [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md).
 
 ## Credits
