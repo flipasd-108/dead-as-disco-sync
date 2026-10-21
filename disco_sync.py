@@ -342,7 +342,7 @@ def backdrop(root, out_dir: Path):
     except OSError:  # offline, the site moved the file, or not an image
         return cv, False
     img.thumbnail((1920, 1920))
-    img = ImageEnhance.Brightness(img).enhance(0.45)
+    img = ImageEnhance.Brightness(img).enhance(0.28)
     bg = cv.create_image(0, 0, anchor="nw")
     size = [0, 0]
 
@@ -396,7 +396,7 @@ def gui(out_dir: Path, src: str = ""):
             ctypes.windll.user32.GetParent(root.winfo_id()), 20, ctypes.byref(ctypes.c_int(1)), 4), add="+")
     cv, art = backdrop(root, out_dir)
     # labels are canvas text, so the art shows around the controls; light text on the darkened art
-    fg, dim = ("#ffffff", "#d6d6d6") if art or not light else ("#1a1a1a", "#5c5c5c")
+    fg, dim = ("#ffffff", "#e8e8e8") if art or not light else ("#1a1a1a", "#5c5c5c")
     font = ("Segoe UI", 10)
 
     def text(t, color=fg):
