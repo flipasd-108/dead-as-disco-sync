@@ -126,24 +126,33 @@ def fetch_wav(src: str, out_dir: Path) -> Path:
         cookies_txt = out_dir.parent / "cookies.txt"
         tries = [{"cookiefile": str(cookies_txt)}] if cookies_txt.exists() else []
         tries += [{}, {}, {"cookiesfrombrowser": ("firefox",)}]
+        age = False  # an 18+ video opens only to a signed-in session, a plain retry never helps
         for extra in tries:
+            if age and not extra:
+                continue
             try:
                 with yt_dlp.YoutubeDL(opts | extra) as ydl:
                     info = ydl.extract_info(src)
                     wav = Path(ydl.prepare_filename(info)).with_suffix(".wav")
                 nice = wav.with_name(clean_title(wav.stem) + ".wav")
                 return wav.replace(nice) if nice != wav else wav
-            except Exception as e:  # bot check or 403 on the media URL, or no Firefox profile for the cookie attempt
-                if not any(m in str(e) for m in ("not a bot", "403")) and "cookiesfrombrowser" not in extra:
+            except Exception as e:  # bot check, age gate or 403 on the media URL, or no Firefox profile for cookies
+                age = age or "your age" in str(e)
+                if not any(m in str(e) for m in ("not a bot", "403", "your age")) and "cookiesfrombrowser" not in extra:
                     raise
-                print(tr("YouTube: проверка на бота, пробую по-другому...", "YouTube bot check, trying another way..."))
+                print(tr("YouTube: ролик 18+, нужен вход, пробую из Firefox..." if age else
+                         "YouTube: проверка на бота, пробую по-другому...",
+                         "YouTube: 18+ video, needs a sign-in, trying Firefox..." if age else
+                         "YouTube bot check, trying another way..."))
                 time.sleep(3)
-        sys.exit(tr("\nYouTube не пускает (проверка на бота). Варианты:\n"
+        why = tr("ролик 18+, YouTube отдаёт его только после входа" if age else "проверка на бота",
+                 "18+ video, YouTube serves it only after a sign-in" if age else "bot check")
+        sys.exit(tr(f"\nYouTube не пускает ({why}). Варианты:\n"
                     "  1) войти в YouTube в Firefox и запустить снова: программа возьмёт вход оттуда;\n"
                     "  2) в Chrome поставить расширение «Get cookies.txt LOCALLY», на youtube.com нажать Export\n"
                     f"     и положить файл cookies.txt сюда: {cookies_txt.parent}\n"
                     "  3) скачать песню любым способом и перетащить файл на DeadAsDiscoSync.bat.",
-                    "\nYouTube blocks the download (bot check). Options:\n"
+                    f"\nYouTube blocks the download ({why}). Options:\n"
                     "  1) sign in to YouTube in Firefox and run again: the session is picked up from there;\n"
                     "  2) in Chrome install the 'Get cookies.txt LOCALLY' extension, press Export on youtube.com\n"
                     f"     and put cookies.txt here: {cookies_txt.parent}\n"
@@ -888,6 +897,14 @@ def gui(out_dir: Path, src: str = ""):
 
     entry.bind("<Return>", go)
     entry.focus_set()
+
+    def edit_keys(e):  # Tk knows Ctrl+V by its letter, and a Russian layout sends "м": go by the physical key
+        ev = {86: "<<Paste>>", 67: "<<Copy>>", 88: "<<Cut>>", 65: "<<SelectAll>>"}.get(e.keycode)
+        if ev and e.keysym.lower() not in ("v", "c", "x", "a"):
+            e.widget.event_generate(ev)
+            return "break"
+
+    root.bind_class("TEntry", "<Control-KeyPress>", edit_keys, add="+")
 
     def dropped(e):
         for f in root.tk.splitlist(e.data):  # several files at once go into the queue in order
