@@ -8,7 +8,7 @@
 
 1. Скачать один файл: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** и положить в отдельную папку.
 2. Перетащить на него аудиофайл, или запустить и вставить ссылку на YouTube / путь к файлу. Windows может спросить «Запустить?» — да.
-3. Добавить в игру WAV из папки `songs\` рядом с батником (Проводник откроется с ним сам) и вбить числа.
+3. Если игра стоит на этом компьютере, песня **сама добавляется в «Мою музыку»** уже с настройками: в игре нажать Reload Directory или перезапустить её. Если вариантов два, добавляются оба. Иначе — добавить WAV из папки `songs\` (Проводник откроется с ним сам) и вбить числа.
 
 Первый запуск сам ставит [uv](https://github.com/astral-sh/uv), Python, библиотеки и модели (~1 ГБ, несколько минут). Дальше 30 с – 2 мин на песню.
 
@@ -34,7 +34,7 @@ YouTube link or audio file → WAV plus the **My Music** settings for Dead as Di
 
 1. Download one file: **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** into its own folder.
 2. Drop an audio file onto it, or run it and paste a YouTube link / file path.
-3. Add the WAV from `songs\` (Explorer opens with it selected) to the game and enter the numbers. Keep the WAV where it is.
+3. If the game is installed on this PC, the song is **added to My Music automatically** with its settings: press Reload Directory in the game or restart it. Otherwise add the WAV from `songs\` (Explorer opens with it selected) and enter the numbers.
 
 The first run installs uv, Python, libraries and models (~1 GB). Output is in English unless Windows is set to Russian.
 

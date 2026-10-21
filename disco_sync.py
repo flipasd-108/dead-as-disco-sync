@@ -12,7 +12,7 @@
 Run:  uv run disco_sync.py "https://youtu.be/..."   (or a local file path)
 Import the WAV it writes into the game: the offset is measured on exactly that file.
 """
-import locale, subprocess, sys, time
+import hashlib, json, locale, os, random, shutil, subprocess, sys, time
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +21,37 @@ import imageio_ffmpeg
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 RU = (locale.getlocale()[0] or "").lower().startswith("ru")  # the game's language follows the system's
+GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
+
+
+def add_to_game(r: dict) -> Path | None:
+    """Add the song to the game's My Music the way its own import does: a folder with the audio and Meta.json.
+    Only creates a new folder, never touches existing songs."""
+    sample = next((f for f in GAME_SONGS.glob("*/Audio*") if f.is_file()), None) if GAME_SONGS.is_dir() else None
+    if sample is None:  # game not installed here, or no import of its own to copy the audio file layout from
+        return None
+    name = "".join("_" if c in '<>:"/\\|?*' else c for c in r["wav"].stem).strip(" .")
+    folder, n = GAME_SONGS / name, 2
+    while folder.exists():
+        folder, n = GAME_SONGS / f"{name} ({n})", n + 1
+    folder.mkdir()
+    audio = folder / ("Audio" + sample.suffix)
+    if sample.suffix.lower() in ("", ".wav"):
+        shutil.copyfile(r["wav"], audio)
+    else:  # the game keeps another format: convert, the WAV already starts on a beat
+        subprocess.run([FFMPEG, "-y", "-v", "error", "-i", str(r["wav"]), str(audio)], check=True)
+    meta = {
+        "version": 1, "uniqueId": random.getrandbits(32), "songName": folder.name, "performedBy": [], "writtenBy": [],
+        "seed": random.getrandbits(31), "tempo": round(r["bpm"], 2), "customTempoSections": [],
+        "beatOffset": r["offset"], "startSongOffset": r["start"], "endSongOffset": 0, "uEAssetName": folder.name,
+        "originalAudioFileHash": hashlib.md5(r["wav"].read_bytes()).hexdigest(),
+        "originalAudioFilePath": r["wav"].as_posix(),
+        "analyseResult": {"bAnalyseSuccessful": False, "bFoundTempo": False, "bFoundOffset": False, "tempo": 0,
+                          "beatOffset": 0, "fitQuality": 0, "errorCode": {"code": 0, "messageKey": "None", "message": ""}},
+        "beatTracks": [],
+    }
+    (folder / "Meta.json").write_text(json.dumps(meta, indent=4, ensure_ascii=False), encoding="utf-8")
+    return folder
 
 
 def tr(ru: str, en: str) -> str:
@@ -242,11 +273,18 @@ def main():
                            "audio stretched 1-2% in places. Recommended"))
     else:
         show(r, tr("Моя музыка -> вбить в игру", "My Music -> enter in the game"))
-    shown = r.get("sync", r)["wav"]
-    print(tr("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.",
-             "\nThe WAV is selected in Explorer: add it to the game and keep it in place."))
-    if sys.platform == "win32":
-        subprocess.Popen(["explorer", "/select,", str(shown)])
+    added = [f for f in (add_to_game(v) for v in (r, r.get("sync")) if v) if f]
+    if added:
+        print(tr("\nУже в игре, вбивать ничего не нужно: «Моя музыка» -> Reload Directory (или перезапусти игру).",
+                 "\nAlready in the game, nothing to type: My Music -> Reload Directory (or restart the game)."))
+        for f in added:
+            print(f"  + {f.name}")
+    else:
+        shown = r.get("sync", r)["wav"]
+        print(tr("\nWAV выделен в Проводнике: добавь в игру его и не перемещай потом.",
+                 "\nThe WAV is selected in Explorer: add it to the game and keep it in place."))
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", str(shown)])
     c = r.get("sync", r)  # cross-check the recommended file
     models = list(c["votes"].values())[:-1]  # the attacks vote is blurry on real mixes: it informs, not alarms
     spread = max(models) - min(models)
