@@ -4,7 +4,8 @@
 # dependencies = [
 #   "beat-this==1.1.0", "torch==2.14.1", "torchaudio==2.11.0", "einops==0.8.2", "rotary-embedding-torch==0.9.1",
 #   "soxr==1.1.0", "numpy==2.4.6", "scipy==1.17.1", "soundfile==0.14.0", "imageio-ffmpeg==0.6.0",
-#   "pytsmod==0.3.8", "sv-ttk==2.6.0", "pillow==11.3.0", "yt-dlp[default,deno]",
+#   "pytsmod==0.3.8", "sv-ttk==2.6.0", "pillow==11.3.0", "tkinterdnd2==0.6.3",
+#   "yt-dlp[default,deno]",
 # ]
 # ///
 """Dead as Disco sync: YouTube link or audio file -> WAV + BPM / Beat Offset / Start Time.
@@ -12,7 +13,7 @@
 Run:  uv run disco_sync.py "https://youtu.be/..."   (or a local file path)
 Import the WAV it writes into the game: the offset is measured on exactly that file.
 """
-import hashlib, json, locale, os, random, shutil, subprocess, sys, time, urllib.request
+import hashlib, json, locale, os, random, re, shutil, subprocess, sys, time, urllib.request
 from concurrent.futures import ProcessPoolExecutor
 from functools import cache
 from pathlib import Path
@@ -29,10 +30,10 @@ AUTO_HINT_EN = ("Then open the song in the game and press Auto-detect: the track
                 "own detection sets the tempo and offset right. The numbers above are only for when it misses.")
 # the game's own import takes these 8; the tool also reads opus and video and always hands the game a WAV
 MEDIA_TYPES = "*.wav *.mp3 *.ogg *.flac *.aiff *.m4a *.wma *.aac *.opus *.mp4 *.mkv *.webm *.mov"
-GUI_HELP_RU = ("Файлы: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC, как в самой игре, а ещё OPUS и видео MP4, MKV, WEBM, "
+GUI_HELP_RU = ("Файл можно и перетащить в окно. Файлы: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC, как в самой игре, а ещё OPUS и видео MP4, MKV, WEBM, "
                "MOV. Готовая песня появится в «Моей музыке» после перезапуска игры: открой её и нажми «Автоматическое "
                "определение».")
-GUI_HELP_EN = ("Files: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC, same as the game, plus OPUS and MP4, MKV, WEBM, MOV "
+GUI_HELP_EN = ("You can also drop a file onto the window. Files: WAV, MP3, OGG, FLAC, AIFF, M4A, WMA, AAC, same as the game, plus OPUS and MP4, MKV, WEBM, MOV "
                "video. The song shows up in My Music after a game restart: open it and press Auto-detect.")
 GAME_SONGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Pagoda" / "Saved" / "ImportedSongs"  # Dead as Disco's My Music
 
@@ -76,6 +77,19 @@ def num(x: float, digits: int) -> str:
     return s.replace(".", ",") if RU else s  # the Russian UI uses a decimal comma
 
 
+TITLE_JUNK = (r"official|video|audio|lyric|visuali[sz]er|\bclip\b|\bhd\b|\bhq\b|\b4k\b|remaster|\bm/?v\b"
+              r"|премьер|клип|текст")
+
+
+def clean_title(title: str) -> str:
+    """YouTube titles carry "(Official Video)", "[4K Remaster]", "| Lyrics": the game's song list doesn't need them.
+    Brackets without such words stay: "(feat. X)", "(Live)", "(Remix)"."""
+    t = re.sub(rf"\s*[(\[【][^)\]】]*(?:{TITLE_JUNK})[^)\]】]*[)\]】]", "", title, flags=re.I)
+    t = re.sub(rf"\s*[|｜]\s*[^|｜]*(?:{TITLE_JUNK}).*$", "", t, flags=re.I)
+    t = re.sub(r"\s{2,}", " ", t).strip(" -–|")
+    return t or title
+
+
 def fetch_wav(src: str, out_dir: Path) -> Path:
     if src.startswith(("http://", "https://")):
         import yt_dlp
@@ -98,7 +112,9 @@ def fetch_wav(src: str, out_dir: Path) -> Path:
             try:
                 with yt_dlp.YoutubeDL(opts | extra) as ydl:
                     info = ydl.extract_info(src)
-                    return Path(ydl.prepare_filename(info)).with_suffix(".wav")
+                    wav = Path(ydl.prepare_filename(info)).with_suffix(".wav")
+                nice = wav.with_name(clean_title(wav.stem) + ".wav")
+                return wav.replace(nice) if nice != wav else wav
             except Exception as e:  # bot check or 403 on the media URL, or no Firefox profile for the cookie attempt
                 if not any(m in str(e) for m in ("not a bot", "403")) and "cookiesfrombrowser" not in extra:
                     raise
@@ -295,6 +311,14 @@ def _selftest():
         songs.mkdir(parents=True)
         assert find_game_songs(Path(t)) == songs and find_game_songs(songs.parent.parent) == songs
         assert find_game_songs(songs) == songs and game_status(songs) != game_status(Path(t) / "nope")
+    for raw, clean in (("Rick Astley - Never Gonna Give You Up (Official Music Video) [4K Remaster]",
+                        "Rick Astley - Never Gonna Give You Up"),
+                       ("Bee Gees - Stayin' Alive (Official Video)", "Bee Gees - Stayin' Alive"),
+                       ("РЭЙВИ - Чёрные кошки (Премьера клипа, 2023)", "РЭЙВИ - Чёрные кошки"),
+                       ("Artist - Song | Official Lyric Video", "Artist - Song"),
+                       ("Daft Punk - One More Time (feat. Romanthony)", "Daft Punk - One More Time (feat. Romanthony)"),
+                       ("Song (Live)", "Song (Live)"), ("(Official Video)", "(Official Video)")):
+        assert clean_title(raw) == clean, (raw, clean_title(raw))
     print("selftest ok")
 
 
@@ -395,7 +419,11 @@ def gui(out_dir: Path, src: str = ""):
         ctypes.windll.shcore.SetProcessDpiAwareness(1)  # sharp text on scaled screens instead of a blurry bitmap
     except (AttributeError, OSError):
         pass
-    root = tk.Tk()
+    try:  # drag and drop needs the tkdnd extension; without it the window still works, just without drops
+        from tkinterdnd2 import DND_FILES, TkinterDnD
+        root = TkinterDnD.Tk()
+    except (ImportError, RuntimeError, tk.TclError):
+        DND_FILES, root = None, tk.Tk()
     root.title("Dead as Disco Sync")
     root.geometry("880x660")
     root.minsize(640, 400)
@@ -717,14 +745,30 @@ def gui(out_dir: Path, src: str = ""):
     current = {}
     jobs = []  # songs waiting their turn, oldest first
 
+    log_path = out_dir / "disco_sync.log"  # what a user sends when something breaks
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if log_path.exists() and log_path.stat().st_size > 2_000_000:
+        log_path.replace(log_path.with_suffix(".old.log"))
+    log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+    log_file.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} start, Python {sys.version.split()[0]}, "
+                   f"{sys.platform}\n")
+
     class Out:
         def write(self, s):
             q.put(("log", s))
+            log_file.write(s)
 
         def flush(self):
             pass
 
     sys.stdout = sys.stderr = Out()
+
+    def report(*exc):  # a crash inside a button handler: log it and say where the log is
+        traceback.print_exception(*exc, file=log_file)
+        messagebox.showerror("Dead as Disco Sync", tr(f"Что-то сломалось. Журнал: {log_path}",
+                                                      f"Something broke. Log: {log_path}"))
+
+    root.report_callback_exception = report
 
     def work(s):
         try:
@@ -732,11 +776,12 @@ def gui(out_dir: Path, src: str = ""):
         except SystemExit as e:  # fetch_wav exits with a message when YouTube blocks the download
             q.put(("error", str(e.code or "")))
         except Exception as e:
-            traceback.print_exc(file=sys.__stderr__)
+            traceback.print_exc(file=log_file)
             q.put(("error", str(e)))
 
-    def go(_=None):
-        s = entry.get().strip().strip('"')
+    def go(_=None, s=None):
+        from_entry = s is None
+        s = (entry.get() if from_entry else s).strip().strip('"')
         if not s:
             return
         if not s.startswith(("http://", "https://")) and not Path(s).is_file():
@@ -745,7 +790,8 @@ def gui(out_dir: Path, src: str = ""):
         h = {"name": s if s.startswith("http") else Path(s).stem, "src": s, "busy": True,
              "step": tr("В очереди", "Queued"), "log": ""}
         add_rows(h)
-        entry.delete(0, "end")  # ready for the next link while this one waits or runs
+        if from_entry:
+            entry.delete(0, "end")  # ready for the next link while this one waits or runs
         jobs.append(h)
         if not current:
             next_job()
@@ -768,7 +814,8 @@ def gui(out_dir: Path, src: str = ""):
         current.clear()
         show_game()
         if h.get("error"):
-            messagebox.showerror(h["name"], h["error"])
+            log_file.write(f"--- error: {h['name']}\n{h['error']}\n")
+            messagebox.showerror(h["name"], h["error"] + tr(f"\n\nЖурнал: {log_path}", f"\n\nLog: {log_path}"))
         next_job()
 
     def pump():
@@ -799,6 +846,16 @@ def gui(out_dir: Path, src: str = ""):
 
     entry.bind("<Return>", go)
     entry.focus_set()
+
+    def dropped(e):
+        for f in root.tk.splitlist(e.data):  # several files at once go into the queue in order
+            go(s=f)
+        return e.action
+
+    if DND_FILES:
+        for w in (cv, entry, tree):
+            w.drop_target_register(DND_FILES)
+            w.dnd_bind("<<Drop>>", dropped)
     # load the models while the user pastes a link; a song started earlier just waits on the same cache
     threading.Thread(target=lambda: [beat_model(c) for c in CHECKPOINTS], daemon=True).start()
 

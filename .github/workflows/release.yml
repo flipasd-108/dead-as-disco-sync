@@ -1,0 +1,34 @@
+# A pushed tag v* becomes a release: self-test, build the GPU variant, attach the three files users need.
+# Release notes come from the annotated tag: git tag -a v1.7 -F notes.md && git push origin v1.7
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Self-test
+        run: uv run disco_sync.py --test
+
+      - name: Build the release files
+        shell: bash
+        run: |
+          python tools/make_gpu.py disco_sync.py
+          cp run.bat DeadAsDiscoSync.bat
+
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" DeadAsDiscoSync.bat disco_sync.py disco_sync_gpu.py
+          --title "$GITHUB_REF_NAME" --notes-from-tag --verify-tag

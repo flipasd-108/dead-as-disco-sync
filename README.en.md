@@ -22,17 +22,17 @@ The window follows the Windows language; on a non-Russian Windows it's in Englis
 1. Download **[DeadAsDiscoSync.bat](https://github.com/flipasd-108/dead-as-disco-sync/releases/latest/download/DeadAsDiscoSync.bat)** into its own folder: a `songs` folder with the finished songs appears next to it.
 2. Run it. The first run installs [uv](https://github.com/astral-sh/uv), Python, libraries and models: about 1 GB, a few minutes. Keep the black console window open meanwhile.
 3. In the window check step 1, the My Music folder in the game's saves. It's usually found automatically; otherwise press Pick.
-4. Paste a link or pick a file and press Start. You can add more links while one is analysed: they wait in a queue. Dropping a file onto DeadAsDiscoSync.bat works too.
+4. Paste a link or pick a file and press Start. You can add more links while one is analysed: they wait in a queue. You can also drop a file onto the window or onto DeadAsDiscoSync.bat.
 5. Restart the game, open the song in My Music and press **Auto-detect**. The track already starts on a beat, so the game sets tempo and offset right by itself.
 
-Finished songs collect in a list. The buttons above it open the song's folder in the game, show its WAV in Explorer and delete the song from the list, the game and the disk after a confirmation.
+YouTube titles lose tails like "(Official Video)" and "[4K]". Finished songs collect in a list. The buttons above it open the song's folder in the game, show its WAV in Explorer and delete the song from the list, the game and the disk after a confirmation.
 
 A 3-minute song takes about 12 s, about 40 s with a drifting tempo, plus the YouTube download.
 
 ## Requirements
 
 - Windows 10 or 11.
-- Internet on every start: the .bat fetches the tool from the latest GitHub release. The first start also downloads about 1 GB.
+- Internet on the first start (it downloads about 1 GB) and for links. On every start the .bat fetches the latest version from GitHub; without internet it runs the last one it downloaded.
 - About 1 GB of disk space.
 - Dead as Disco on the same PC, with at least one song already imported through the game. Otherwise the tool makes the WAV, but you add it to the game by hand.
 - A graphics card is optional. With an NVIDIA card it can run faster, see [below](#graphics-card).
@@ -54,6 +54,8 @@ DeadAsDiscoSync.bat is the only download; it installs the rest. If you used a ve
 - sign in to YouTube in Firefox and run again;
 - or install the "Get cookies.txt LOCALLY" Chrome extension, press Export on youtube.com and put `cookies.txt` next to DeadAsDiscoSync.bat;
 - or download the song yourself and pick the file.
+
+**Nothing helped.** Open an [issue](https://github.com/flipasd-108/dead-as-disco-sync/issues) and attach `songs\disco_sync.log`: it has everything the tool did and the error text.
 
 **Your own `disco_sync.py` next to the .bat.** The .bat then runs it instead of the latest version. That's for development only; a regular user has no such file.
 
@@ -86,7 +88,7 @@ The developers said in an [80.lv interview](https://80.lv/articles/interview-how
 
 - Without the window: `uv run disco_sync.py "<link or file>" [folder]`. Self-test: `uv run disco_sync.py --test`.
 - Everything is in `disco_sync.py`, with its dependencies inline ([PEP 723](https://peps.python.org/pep-0723/)), pinned except yt-dlp, which YouTube keeps breaking.
-- A release carries `DeadAsDiscoSync.bat` (that's `run.bat`), `disco_sync.py` and `disco_sync_gpu.py`. The last one comes from `python tools/make_gpu.py disco_sync.py`: the same code with torch from the PyTorch CUDA index.
+- GitHub Actions builds a release from a tag: `git tag -a v1.7 -F notes.md && git push origin v1.7`. It runs the self-test, builds `disco_sync_gpu.py` (`tools/make_gpu.py`: the same code with torch from the PyTorch CUDA index) and attaches `DeadAsDiscoSync.bat` (that's `run.bat`), `disco_sync.py` and `disco_sync_gpu.py`. The tag message becomes the release notes.
 - Scenarios and the window's layout, in Russian: [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md).
 
 ## Credits
